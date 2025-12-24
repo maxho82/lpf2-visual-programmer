@@ -2,18 +2,17 @@ package main
 
 import (
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 )
 
 // DraggableBlock - контейнер для перетаскивания блока
 type DraggableBlock struct {
 	widget.BaseWidget
-	block       *ProgramBlock
-	content     fyne.CanvasObject
-	dragStartX  float32
-	dragStartY  float32
-	isDragging  bool
+	block      *ProgramBlock
+	content    fyne.CanvasObject
+	dragStartX float32
+	dragStartY float32
+	isDragging bool
 }
 
 // NewDraggableBlock создает перетаскиваемый блок
@@ -47,10 +46,10 @@ func (d *DraggableBlock) Dragged(e *fyne.DragEvent) {
 		d.dragStartX = d.Position().X - e.Position.X
 		d.dragStartY = d.Position().Y - e.Position.Y
 	}
-	
+
 	newX := e.Position.X + d.dragStartX
 	newY := e.Position.Y + d.dragStartY
-	
+
 	// Ограничиваем движение в пределах положительных координат
 	if newX < 0 {
 		newX = 0
@@ -58,9 +57,9 @@ func (d *DraggableBlock) Dragged(e *fyne.DragEvent) {
 	if newY < 0 {
 		newY = 0
 	}
-	
+
 	d.Move(fyne.NewPos(newX, newY))
-	
+
 	// Обновляем позицию блока
 	d.block.X = float64(newX)
 	d.block.Y = float64(newY)
