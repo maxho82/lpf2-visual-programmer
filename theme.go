@@ -15,7 +15,6 @@ var (
 	backgroundColor = color.NRGBA{R: 45, G: 45, B: 48, A: 255}    // Темно-серый фон
 	foregroundColor = color.NRGBA{R: 240, G: 240, B: 240, A: 255} // Светлый текст
 	primaryColor    = color.NRGBA{R: 0, G: 122, B: 204, A: 255}   // Синий акцент (как в VS Code)
-	buttonTextColor = color.NRGBA{R: 255, G: 255, B: 255, A: 255} // Белый текст на кнопках
 	secondaryColor  = color.NRGBA{R: 63, G: 63, B: 70, A: 255}    // Цвет для второстепенных элементов
 	disabledColor   = color.NRGBA{R: 104, G: 104, B: 104, A: 255} // Цвет для неактивных элементов
 	hoverColor      = color.NRGBA{R: 28, G: 151, B: 234, A: 255}  // Цвет при наведении

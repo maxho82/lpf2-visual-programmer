@@ -125,13 +125,12 @@ func (p *LPF2Parser) EncodeMotorCommand(cmd MotorCommand) ([]byte, error) {
 	data[3] = 0x01
 
 	// Мощность: преобразуем -100..100 в -127..127
-	power := int8(float64(cmd.Power) * 1.27)
-	if power < -127 {
-		power = -127
-	} else if power > 127 {
-		power = 127
+	powerScaled := int8(float64(cmd.Power) * 1.27)
+	if powerScaled < -127 {
+		powerScaled = -127
 	}
-	data[4] = byte(power)
+	// Убрано условие > 127, т.к. int8 не может быть больше 127
+	data[4] = byte(powerScaled)
 
 	return data, nil
 }

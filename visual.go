@@ -236,28 +236,13 @@ func (pm *ProgramManager) updateCanvas() {
 	log.Println("Обновление холста...")
 }
 
-// CreateBlockWidget создает виджет для блока
-/* func (pm *ProgramManager) CreateBlockWidget(block *ProgramBlock) fyne.CanvasObject {
+// CreateBlockWidget создает виджет для блока с перетаскиванием
+func (pm *ProgramManager) CreateBlockWidget(block *ProgramBlock) fyne.CanvasObject {
 	// Создаем содержимое блока
 	content := pm.createBlockContent(block)
 
-	// Создаем перетаскиваемый виджет
-	draggable := NewDraggableWidget(content, block)
-
-	// Настраиваем обработчики
-	draggable.OnTapped = func() {
-		log.Printf("Блок '%s' выбран", block.Title)
-		pm.selected = block
-		pm.ShowBlockProperties(block)
-	}
-
-	draggable.OnMoved = func(x, y float64) {
-		log.Printf("Блок '%s' перемещен в (%.0f, %.0f)", block.Title, x, y)
-	}
-
-	draggable.OnSelected = func(b *ProgramBlock) {
-		pm.selected = b
-	}
+	// Обертываем в перетаскиваемый контейнер
+	draggable := NewDraggableBlock(block, content)
 
 	// Устанавливаем размер и позицию
 	draggable.Resize(fyne.NewSize(float32(block.Width), float32(block.Height)))
@@ -291,22 +276,6 @@ func (pm *ProgramManager) createBlockContent(block *ProgramBlock) fyne.CanvasObj
 			container.NewCenter(desc),
 		),
 	)
-} */
-
-// CreateBlockWidget создает виджет для блока
-func (pm *ProgramManager) CreateBlockWidget(block *ProgramBlock) fyne.CanvasObject {
-	// Создаем перетаскиваемый виджет
-	draggableWidget := NewDraggableBlockWidget(block, pm)
-
-	// Устанавливаем размер и позицию
-	draggableWidget.Resize(fyne.NewSize(float32(block.Width), float32(block.Height)))
-	draggableWidget.Move(fyne.NewPos(float32(block.X), float32(block.Y)))
-
-	// Контейнер для позиционирования
-	positionedContainer := container.NewWithoutLayout()
-	positionedContainer.Add(draggableWidget)
-
-	return positionedContainer
 }
 
 // GetCanvas возвращает холст

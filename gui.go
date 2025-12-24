@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"image/color"
-	"log"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -34,9 +33,6 @@ type GUI struct {
 	propertiesPanel fyne.CanvasObject
 	programPanel    fyne.CanvasObject
 	blocksPanel     fyne.CanvasObject
-
-	// Данные
-	connectedHubInfo HubInfo
 }
 
 // NewGUI создает новый GUI
@@ -97,11 +93,6 @@ func (gui *GUI) createToolbar() *fyne.Container {
 	gui.connectButton = widget.NewButtonWithIcon("Поиск хаба", theme.SearchIcon(), func() {
 		gui.showHubDiscoveryDialog()
 	})
-
-	/* 	gui.refreshButton = widget.NewButtonWithIcon("Обновить", theme.ViewRefreshIcon(), func() {
-		gui.updateCanvas()
-	}) */
-
 	gui.connectButton.Importance = widget.MediumImportance
 
 	// Кнопка отключения
@@ -131,8 +122,14 @@ func (gui *GUI) createToolbar() *fyne.Container {
 	// Кнопка очистки
 	gui.clearButton = widget.NewButtonWithIcon("Очистить", theme.DeleteIcon(), func() {
 		gui.programMgr.ClearProgram()
+		gui.updateProgramCanvas()
 	})
 	gui.clearButton.Importance = widget.MediumImportance
+
+	// Кнопка создания программы мигания
+	blinkButton := widget.NewButtonWithIcon("Создать мигание", theme.RadioButtonIcon(), func() {
+		gui.createBlinkProgram()
+	})
 
 	// Метка статуса
 	gui.statusLabel = widget.NewLabel("Не подключено")
@@ -147,6 +144,7 @@ func (gui *GUI) createToolbar() *fyne.Container {
 		gui.stopButton,
 		widget.NewSeparator(),
 		gui.clearButton,
+		blinkButton,
 		layout.NewSpacer(),
 		gui.statusLabel,
 		layout.NewSpacer(),
@@ -206,17 +204,11 @@ func (gui *GUI) createPortWidget(portID byte, label string) fyne.CanvasObject {
 	deviceLabel.Alignment = fyne.TextAlignCenter
 	deviceLabel.TextStyle.Italic = true
 
-	// Кнопка управления (если подключено устройство)
-	controlButton := widget.NewButton("Управление", nil)
-	controlButton.Importance = widget.MediumImportance
-	controlButton.Disable()
-
 	// Контейнер порта
 	portContainer := container.NewVBox(
 		container.NewCenter(icon),
 		portLabel,
 		deviceLabel,
-		controlButton,
 		widget.NewSeparator(),
 	)
 
@@ -238,23 +230,16 @@ func (gui *GUI) createPortWidget(portID byte, label string) fyne.CanvasObject {
 				}
 			}
 
-			// Используем fyne.Do для обновления UI в главном потоке
 			fyne.Do(func() {
 				if isConnected {
 					deviceLabel.SetText(deviceName)
-					controlButton.Enable()
-					controlButton.SetText("Управление")
 					icon.SetResource(theme.ConfirmIcon())
 				} else {
 					deviceLabel.SetText("Не подключено")
-					controlButton.Disable()
-					controlButton.SetText("Устройство отключено")
 					icon.SetResource(theme.StorageIcon())
 				}
 
-				// Обновляем виджеты
 				deviceLabel.Refresh()
-				controlButton.Refresh()
 				icon.Refresh()
 			})
 		}
@@ -294,20 +279,9 @@ func (gui *GUI) createBatteryWidget() fyne.CanvasObject {
 			hubInfo := gui.hubMgr.GetHubInfo()
 			batteryLevel := hubInfo.Battery
 
-			// Используем fyne.Do для обновления UI в главном потоке
 			fyne.Do(func() {
 				progress.SetValue(float64(batteryLevel) / 100)
 				percentLabel.SetText(fmt.Sprintf("%d%%", batteryLevel))
-
-				// Меняем цвет прогресс-бара в зависимости от уровня
-				if batteryLevel < 20 {
-					progress.SetValue(0.2)
-				} else if batteryLevel < 50 {
-					// Оранжевый для среднего уровня
-					progress.SetValue(float64(batteryLevel) / 100)
-				}
-
-				// Обновляем виджеты
 				progress.Refresh()
 				percentLabel.Refresh()
 			})
@@ -346,13 +320,11 @@ func (gui *GUI) createHubInfoWidget() fyne.CanvasObject {
 		for range ticker.C {
 			hubInfo := gui.hubMgr.GetHubInfo()
 
-			// Используем fyne.Do для обновления UI в главном потоке
 			fyne.Do(func() {
 				nameLabel.SetText(fmt.Sprintf("Имя: %s", hubInfo.Name))
 				addressLabel.SetText(fmt.Sprintf("Адрес: %s", hubInfo.Address))
 				firmwareLabel.SetText(fmt.Sprintf("Прошивка: %s", hubInfo.Firmware))
 
-				// Обновляем виджеты
 				nameLabel.Refresh()
 				addressLabel.Refresh()
 				firmwareLabel.Refresh()
@@ -370,7 +342,7 @@ func (gui *GUI) createPropertiesPanel() fyne.CanvasObject {
 	title.TextSize = 16
 	title.TextStyle.Bold = true
 
-	// Контейнер свойств (будет обновляться при выборе блока)
+	// Контейнер свойств
 	propsContainer := container.NewVBox(
 		container.NewCenter(title),
 		widget.NewSeparator(),
@@ -391,43 +363,114 @@ func (gui *GUI) createBlocksPanel() fyne.CanvasObject {
 	blocksList := container.NewVBox(
 		container.NewCenter(title),
 		widget.NewSeparator(),
-		gui.createBlockButton("Начать", BlockTypeStart, color.NRGBA{R: 76, G: 175, B: 80, A: 255}),
-		gui.createBlockButton("Мотор", BlockTypeMotor, color.NRGBA{R: 33, G: 150, B: 243, A: 255}),
-		gui.createBlockButton("Светодиод", BlockTypeLED, color.NRGBA{R: 255, G: 193, B: 7, A: 255}),
-		gui.createBlockButton("Ждать", BlockTypeWait, color.NRGBA{R: 158, G: 158, B: 158, A: 255}),
-		gui.createBlockButton("Повторять", BlockTypeLoop, color.NRGBA{R: 156, G: 39, B: 176, A: 255}),
-		gui.createBlockButton("Стоп", BlockTypeStop, color.NRGBA{R: 244, G: 67, B: 54, A: 255}),
+		gui.createBlockButton("Начать", BlockTypeStart),
+		gui.createBlockButton("Мотор", BlockTypeMotor),
+		gui.createBlockButton("Светодиод", BlockTypeLED),
+		gui.createBlockButton("Ждать", BlockTypeWait),
+		gui.createBlockButton("Повторять", BlockTypeLoop),
+		gui.createBlockButton("Стоп", BlockTypeStop),
 	)
 
 	return container.NewVScroll(container.NewPadded(blocksList))
 }
 
 // createBlockButton создает кнопку для добавления блока
-func (gui *GUI) createBlockButton(text string, blockType BlockType, bgColor color.Color) *widget.Button {
+func (gui *GUI) createBlockButton(text string, blockType BlockType) *widget.Button {
 	btn := widget.NewButton(text, func() {
-		// Добавляем блок в случайную позицию
+		// Добавляем блок в случайную позицию (чтобы не накладывались)
 		x := 100.0 + float64(len(gui.programMgr.blocks))*20
 		y := 100.0 + float64(len(gui.programMgr.blocks))*20
 
 		block := gui.programMgr.AddBlock(blockType, x, y)
 
-		// Создаем виджет блока
-		blockWidget := gui.programMgr.CreateBlockWidget(block)
-
-		// Получаем контейнер холста и добавляем блок
-		if scroll, ok := gui.programPanel.(*container.Scroll); ok {
-			if content, ok := scroll.Content.(*fyne.Container); ok {
-				content.Add(blockWidget)
-				content.Refresh()
-
-				// Показываем свойства блока
-				gui.showBlockProperties(block)
-			}
-		}
+		// Создаем виджет блока и добавляем на холст
+		gui.addBlockToCanvas(block)
 	})
 
 	btn.Importance = widget.MediumImportance
 	return btn
+}
+
+// addBlockToCanvas добавляет блок на холст
+func (gui *GUI) addBlockToCanvas(block *ProgramBlock) {
+	// Создаем виджет блока
+	blockWidget := gui.programMgr.CreateBlockWidget(block)
+
+	// Добавляем на холст
+	if scrollContent, ok := gui.programPanel.(*container.Scroll); ok {
+		if content, ok := scrollContent.Content.(*fyne.Container); ok {
+			content.Add(blockWidget)
+			content.Refresh()
+		}
+	}
+}
+
+// createBlinkProgram создает программу мигания светодиода
+func (gui *GUI) createBlinkProgram() {
+	// Очищаем программу
+	gui.programMgr.ClearProgram()
+
+	// Очищаем холст
+	gui.updateProgramCanvas()
+
+	// Создаем блоки для мигания
+	blocks := []struct {
+		blockType BlockType
+		x, y      float64
+		config    func(*ProgramBlock)
+	}{
+		{BlockTypeStart, 200, 100, nil},
+		{BlockTypeLoop, 200, 200, func(b *ProgramBlock) {
+			b.Parameters["forever"] = true
+		}},
+		{BlockTypeLED, 200, 300, func(b *ProgramBlock) {
+			b.Parameters["port"] = byte(6)
+			b.Parameters["red"] = byte(255)
+			b.Parameters["green"] = byte(0)
+			b.Parameters["blue"] = byte(0)
+		}},
+		{BlockTypeWait, 200, 400, func(b *ProgramBlock) {
+			b.Parameters["duration"] = 0.5
+		}},
+		{BlockTypeLED, 200, 500, func(b *ProgramBlock) {
+			b.Parameters["port"] = byte(6)
+			b.Parameters["red"] = byte(0)
+			b.Parameters["green"] = byte(0)
+			b.Parameters["blue"] = byte(0)
+		}},
+		{BlockTypeWait, 200, 600, func(b *ProgramBlock) {
+			b.Parameters["duration"] = 0.5
+		}},
+	}
+
+	// Добавляем и настраиваем блоки
+	var prevBlock *ProgramBlock
+	for _, item := range blocks {
+		block := gui.programMgr.AddBlock(item.blockType, item.x, item.y)
+
+		// Применяем конфигурацию
+		if item.config != nil {
+			item.config(block)
+		}
+
+		// Создаем связи между блоками
+		if prevBlock != nil {
+			prevBlock.NextBlockID = block.ID
+		}
+		prevBlock = block
+
+		// Добавляем на холст
+		gui.addBlockToCanvas(block)
+	}
+
+	dialog.ShowInformation("Готово",
+		"Программа мигания светодиода создана!\n\n"+
+			"Действия:\n"+
+			"1. Подключитесь к хабу\n"+
+			"2. Нажмите 'Запуск'\n"+
+			"3. Светодиод на хабе начнет мигать\n"+
+			"4. Нажмите 'Стоп' для остановки",
+		gui.window)
 }
 
 // createStatusBar создает строку состояния
@@ -439,45 +482,32 @@ func (gui *GUI) createStatusBar() *fyne.Container {
 	return container.NewCenter(statusText)
 }
 
+// showHubDiscoveryDialog показывает диалог поиска хаба
 func (gui *GUI) showHubDiscoveryDialog() {
-	log.Println("=== GUI: Начало сканирования хабов ===")
-
-	// Показываем индикатор прогресса
 	progress := dialog.NewProgress("Поиск LPF2-хабов", "Сканирование...", gui.window)
 	progress.Show()
 
-	// Запускаем сканирование в отдельной горутине
 	go func() {
-		log.Println("GUI: Запуск сканирования через hubMgr.ScanForHubs...")
+		hubs, err := gui.hubMgr.ScanForHubs(15 * time.Second)
 
-		hubs, err := gui.hubMgr.ScanForHubs(15 * time.Second) // Увеличиваем время
-
-		log.Printf("GUI: Сканирование завершено. Найдено: %d, Ошибка: %v", len(hubs), err)
-
-		// Используем fyne.Do для скрытия прогресса
 		fyne.Do(func() {
 			progress.Hide()
 
 			if err != nil {
-				log.Printf("GUI: Ошибка сканирования: %v", err)
 				dialog.ShowError(err, gui.window)
 				return
 			}
 
 			if len(hubs) == 0 {
-				log.Println("GUI: Хабы не найдены")
 				dialog.ShowInformation("Хабы не найдены",
 					"Убедитесь, что:\n1. Хаб включен\n2. Хаб в режиме подключения (мигает)\n3. Bluetooth адаптер активен",
 					gui.window)
 				return
 			}
 
-			// Показываем список найденных хабов
-			log.Printf("GUI: Найдено %d хабов, показываем диалог", len(hubs))
 			items := make([]string, len(hubs))
 			for i, hub := range hubs {
 				items[i] = fmt.Sprintf("%s (%s)", hub.Name, hub.Address)
-				log.Printf("GUI: Доступный хаб: %s", items[i])
 			}
 
 			list := widget.NewSelect(items, func(selected string) {
@@ -485,7 +515,6 @@ func (gui *GUI) showHubDiscoveryDialog() {
 					for _, hub := range hubs {
 						fullName := fmt.Sprintf("%s (%s)", hub.Name, hub.Address)
 						if fullName == selected {
-							log.Printf("GUI: Выбран хаб: %s", hub.Address)
 							gui.connectToHub(hub.Address)
 							break
 						}
@@ -505,14 +534,12 @@ func (gui *GUI) showHubDiscoveryDialog() {
 
 // connectToHub подключается к указанному хабу
 func (gui *GUI) connectToHub(address string) {
-	// Показываем индикатор прогресса
 	progress := dialog.NewProgress("Подключение", "Подключение к хабу...", gui.window)
 	progress.Show()
 
 	go func() {
 		err := gui.hubMgr.Connect(address)
 
-		// Используем fyne.Do для обновления UI в главном потоке
 		fyne.Do(func() {
 			progress.Hide()
 
@@ -526,16 +553,8 @@ func (gui *GUI) connectToHub(address string) {
 	}()
 }
 
-// showBlockProperties показывает свойства блока
-func (gui *GUI) showBlockProperties(block *ProgramBlock) {
-	// Временно: просто логируем
-	log.Printf("Выбран блок: %s (ID: %d)", block.Title, block.ID)
-	// TODO: Обновить панель свойств
-}
-
 // updateConnectionStatus обновляет статус подключения
 func (gui *GUI) updateConnectionStatus() {
-	// Эта функция вызывается из разных потоков, оборачиваем в fyne.Do
 	fyne.Do(func() {
 		isConnected := gui.hubMgr.IsConnected()
 
@@ -555,7 +574,6 @@ func (gui *GUI) updateConnectionStatus() {
 			gui.stopButton.Disable()
 		}
 
-		// Обновляем виджеты
 		gui.statusLabel.Refresh()
 		gui.connectButton.Refresh()
 		gui.disconnectButton.Refresh()
@@ -564,28 +582,10 @@ func (gui *GUI) updateConnectionStatus() {
 	})
 }
 
-// updateCanvas обновляет отображение блоков на холсте
-func (gui *GUI) updateCanvas() {
-	// Получаем контейнер холста
-	if scrollContent, ok := gui.programPanel.(*container.Scroll); ok {
-		if content, ok := scrollContent.Content.(*fyne.Container); ok {
-			// Очищаем холст
-			content.RemoveAll()
-
-			// Добавляем сетку
-			grid := canvas.NewRectangle(color.Transparent)
-			grid.StrokeColor = color.NRGBA{R: 240, G: 240, B: 240, A: 255}
-			grid.StrokeWidth = 1
-			grid.SetMinSize(fyne.NewSize(2000, 2000))
-			content.Add(grid)
-
-			// Добавляем все блоки
-			for _, block := range gui.programMgr.blocks {
-				blockWidget := gui.programMgr.CreateBlockWidget(block)
-				content.Add(blockWidget)
-			}
-
-			// Обновляем отображение
+// updateProgramCanvas обновляет холст программы
+func (gui *GUI) updateProgramCanvas() {
+	if scroll, ok := gui.programPanel.(*container.Scroll); ok {
+		if content, ok := scroll.Content.(*fyne.Container); ok {
 			content.Refresh()
 		}
 	}
