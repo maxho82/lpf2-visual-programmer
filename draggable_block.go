@@ -82,21 +82,24 @@ func (d *DraggableBlock) DoubleTapped(e *fyne.PointEvent) {
 	// Можно добавить дополнительные действия
 }
 
-// Dragged обрабатывает перетаскивание - УЛУЧШЕННАЯ ЛОГИКА
+// Dragged обрабатывает перетаскивание – используем //Delta для плавного движения
 func (d *DraggableBlock) Dragged(e *fyne.DragEvent) {
 	if !d.isDragging {
 		d.isDragging = true
-		d.dragStart = e.Position
-		d.blockStart = d.Position()
+		d.dragStart = d.Position()
+		//e.Position = d.Position()
 		return
 	}
 
-	// Вычисляем новую позицию
-	deltaX := e.Position.X - d.dragStart.X
-	deltaY := e.Position.Y - d.dragStart.Y
-	newPos := fyne.NewPos(d.blockStart.X+deltaX, d.blockStart.Y+deltaY)
+	// Вычисляем новую позицию, добавляя смещение мыши (Delta)
+	newPos := fyne.NewPos(
+		d.dragStart.X+e.Dragged.DX,
+		//e.Position.X,
+		d.dragStart.Y+e.Dragged.DY,
+		//e.Position.Y,
+	)
 
-	// Ограничиваем движение
+	// Ограничиваем движение в пределах положительных координат
 	if newPos.X < 0 {
 		newPos.X = 0
 	}
@@ -106,6 +109,7 @@ func (d *DraggableBlock) Dragged(e *fyne.DragEvent) {
 
 	// Перемещаем виджет
 	d.Move(newPos)
+	d.dragStart = d.Position()
 }
 
 // DragEnd завершает перетаскивание

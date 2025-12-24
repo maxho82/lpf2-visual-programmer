@@ -119,26 +119,37 @@ func (dm *DeviceManager) SetLEDColor(portID byte, red, green, blue byte) error {
 		return fmt.Errorf("не подключено к хабу")
 	}
 
-	log.Printf("Установка цвета светодиода на порту %d: RGB(%d,%d,%d)", portID, red, green, blue)
+	// 1. Устанавливаем режим датчика в "absolute" (0x00)
+	modeCmd := SetSensorModeCommand{
+		PortID: portID,
+		Mode:   0x00, // absolute
+	}
+	modeData, err := dm.parser.EncodeSetSensorMode(modeCmd)
+	if err != nil {
+		return fmt.Errorf("ошибка кодирования режима: %v", err)
+	}
+	err = dm.hubMgr.WriteCharacteristic("00001563-1212-efde-1523-785feabcd123", modeData)
+	if err != nil {
+		return fmt.Errorf("ошибка установки режима: %v", err)
+	}
 
+	// 2. Отправляем команду цвета
 	cmd := LEDCommand{
 		PortID: portID,
 		Red:    red,
 		Green:  green,
 		Blue:   blue,
 	}
-
 	data, err := dm.parser.EncodeLEDCommand(cmd)
 	if err != nil {
-		return fmt.Errorf("ошибка кодирования команды: %v", err)
+		return fmt.Errorf("ошибка кодирования цвета: %v", err)
 	}
-
 	err = dm.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data)
 	if err != nil {
-		return fmt.Errorf("ошибка отправки команды: %v", err)
+		return fmt.Errorf("ошибка отправки цвета: %v", err)
 	}
 
-	// Обновление состояния
+	// Обновляем состояние устройства
 	dm.devicesMu.Lock()
 	if device, exists := dm.devices[portID]; exists {
 		device.Properties["red"] = red

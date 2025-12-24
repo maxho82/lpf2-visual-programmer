@@ -9,6 +9,42 @@ import (
 // LPF2Parser парсер протокола LPF2/WeDo 2.0
 type LPF2Parser struct{}
 
+// SetSensorModeCommand команда установки режима датчика
+type SetSensorModeCommand struct {
+	PortID byte
+	Mode   byte // 0x00 = absolute, 0x01 = discrete
+}
+
+// EncodeSetSensorMode кодирует команду установки режима датчика (для RGB‑светодиода)
+func (p *LPF2Parser) EncodeSetSensorMode(cmd SetSensorModeCommand) ([]byte, error) {
+	// Формат: [длина] [тип команды] [порт] [режим]
+	data := []byte{
+		0x0b,                         // Длина пакета (11 байт)
+		0x01,                         // Команда: установка режима
+		0x02,                         // Подкоманда: изменение режима
+		cmd.PortID,                   // Порт (6 для встроенного светодиода)
+		0x17,                         // Тип устройства: RGB (0x17)
+		cmd.Mode,                     // Режим: 0x00 = absolute, 0x01 = discrete
+		0x01, 0x00, 0x00, 0x00, 0x01, // Зарезервированные байты
+	}
+	return data, nil
+}
+
+// EncodeLEDCommand кодирует команду для светодиода (корректный формат LPF2)
+func (p *LPF2Parser) EncodeLEDCommand(cmd LEDCommand) ([]byte, error) {
+	// Формат: [длина] [тип команды] [порт] [режим] [R] [G] [B]
+	data := []byte{
+		0x06,       // Длина пакета (6 байт)
+		0x06,       // Команда: вывод на порт
+		cmd.PortID, // Порт (6)
+		0x03,       // Режим: RGB (0x03)
+		cmd.Red,    // Красный
+		cmd.Green,  // Зеленый
+		cmd.Blue,   // Синий
+	}
+	return data, nil
+}
+
 // ParsePortNotification парсит уведомление о порте
 func (p *LPF2Parser) ParsePortNotification(data []byte) (PortNotification, error) {
 	if len(data) < 12 {
@@ -141,41 +177,4 @@ type LEDCommand struct {
 	Red    byte
 	Green  byte
 	Blue   byte
-}
-
-// EncodeLEDCommand кодирует команду для светодиода
-func (p *LPF2Parser) EncodeLEDCommand(cmd LEDCommand) ([]byte, error) {
-	// Формат команды для RGB светодиода: 06 06 [port] 03 00 [R] [G] [B]
-	data := make([]byte, 8)
-
-	data[0] = 0x06 // Длина команды
-	data[1] = 0x06 // Команда: светодиод
-	data[2] = cmd.PortID
-	data[3] = 0x03 // Режим: RGB
-	data[4] = 0x00 // Reserved
-	data[5] = cmd.Red
-	data[6] = cmd.Green
-	data[7] = cmd.Blue
-
-	return data, nil
-}
-
-// SetSensorModeCommand команда установки режима датчика
-type SetSensorModeCommand struct {
-	PortID byte
-	Mode   byte
-}
-
-// EncodeSetSensorMode кодирует команду установки режима датчика
-func (p *LPF2Parser) EncodeSetSensorMode(cmd SetSensorModeCommand) ([]byte, error) {
-	// Формат: зависит от типа датчика
-	// Для простоты используем стандартный формат WeDo 2.0
-	data := make([]byte, 4)
-
-	data[0] = 0x01 // Subcommand
-	data[1] = cmd.PortID
-	data[2] = 0x22 // Mode change
-	data[3] = cmd.Mode
-
-	return data, nil
 }
