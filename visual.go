@@ -232,17 +232,44 @@ func (pm *ProgramManager) AddBlock(blockType BlockType, x, y float64) *ProgramBl
 
 // updateCanvas обновляет отображение холста
 func (pm *ProgramManager) updateCanvas() {
-	// TODO: Обновить графическое представление блоков и соединений
 	log.Println("Обновление холста...")
+
+	// Получаем контейнер холста
+	content := pm.canvas.Content.(*fyne.Container)
+
+	// Удаляем все старые виджеты блоков (кроме фона)
+	// Находим и сохраняем фон (первый элемент)
+	var background fyne.CanvasObject
+	if len(content.Objects) > 0 {
+		background = content.Objects[0]
+	}
+
+	// Очищаем контейнер
+	content.RemoveAll()
+
+	// Добавляем фон обратно
+	if background != nil {
+		content.Add(background)
+	}
+
+	// Добавляем все блоки
+	for _, block := range pm.blocks {
+		blockWidget := pm.CreateBlockWidget(block)
+		content.Add(blockWidget)
+	}
+
+	// Обновляем отображение
+	content.Refresh()
+	pm.canvas.Refresh()
 }
 
-// CreateBlockWidget создает виджет для блока с перетаскиванием
+// CreateBlockWidget создает виджет для блока
 func (pm *ProgramManager) CreateBlockWidget(block *ProgramBlock) fyne.CanvasObject {
 	// Создаем содержимое блока
 	content := pm.createBlockContent(block)
 
 	// Обертываем в перетаскиваемый контейнер
-	draggable := NewDraggableBlock(block, content)
+	draggable := NewDraggableBlock(block, pm, content)
 
 	// Устанавливаем размер и позицию
 	draggable.Resize(fyne.NewSize(float32(block.Width), float32(block.Height)))

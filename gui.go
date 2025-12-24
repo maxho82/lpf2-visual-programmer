@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image/color"
+	"log"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -377,31 +378,50 @@ func (gui *GUI) createBlocksPanel() fyne.CanvasObject {
 // createBlockButton создает кнопку для добавления блока
 func (gui *GUI) createBlockButton(text string, blockType BlockType) *widget.Button {
 	btn := widget.NewButton(text, func() {
-		// Добавляем блок в случайную позицию (чтобы не накладывались)
-		x := 100.0 + float64(len(gui.programMgr.blocks))*20
-		y := 100.0 + float64(len(gui.programMgr.blocks))*20
+		// Добавляем блок в позицию с небольшим смещением
+		x := 50.0 + float64(len(gui.programMgr.blocks))*180
+		y := 50.0
 
+		log.Printf("Создание блока: %s в позиции (%.0f, %.0f)", text, x, y)
+
+		// Добавляем блок в менеджер
 		block := gui.programMgr.AddBlock(blockType, x, y)
 
-		// Создаем виджет блока и добавляем на холст
+		// Добавляем на холст
 		gui.addBlockToCanvas(block)
+
+		// Показываем сообщение
+		log.Printf("Блок '%s' создан успешно!", text)
 	})
 
-	btn.Importance = widget.MediumImportance
+	btn.Importance = widget.HighImportance
 	return btn
 }
 
 // addBlockToCanvas добавляет блок на холст
 func (gui *GUI) addBlockToCanvas(block *ProgramBlock) {
+	log.Printf("Добавление блока на холст: %s (ID: %d)", block.Title, block.ID)
+
 	// Создаем виджет блока
 	blockWidget := gui.programMgr.CreateBlockWidget(block)
 
-	// Добавляем на холст
-	if scrollContent, ok := gui.programPanel.(*container.Scroll); ok {
-		if content, ok := scrollContent.Content.(*fyne.Container); ok {
+	// Получаем контейнер холста
+	if scroll, ok := gui.programPanel.(*container.Scroll); ok {
+		if content, ok := scroll.Content.(*fyne.Container); ok {
+			// Добавляем виджет в контейнер
 			content.Add(blockWidget)
+
+			// Обновляем отображение
 			content.Refresh()
+			scroll.Refresh()
+
+			log.Printf("Блок %s добавлен на холст. Всего блоков: %d",
+				block.Title, len(content.Objects))
+		} else {
+			log.Println("Ошибка: контейнер холста не найден")
 		}
+	} else {
+		log.Println("Ошибка: Scroll контейнер не найден")
 	}
 }
 
@@ -582,11 +602,15 @@ func (gui *GUI) updateConnectionStatus() {
 	})
 }
 
-// updateProgramCanvas обновляет холст программы
+// updateProgramCanvas обновляет весь холст
 func (gui *GUI) updateProgramCanvas() {
+	log.Println("Полное обновление холста...")
+
+	// Вызываем обновление в ProgramManager
+	gui.programMgr.updateCanvas()
+
+	// Обновляем прокручиваемую область
 	if scroll, ok := gui.programPanel.(*container.Scroll); ok {
-		if content, ok := scroll.Content.(*fyne.Container); ok {
-			content.Refresh()
-		}
+		scroll.Refresh()
 	}
 }

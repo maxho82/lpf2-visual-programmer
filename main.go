@@ -9,6 +9,9 @@ import (
 )
 
 func main() {
+	// Включаем подробное логирование
+	log.Println("=== Запуск LPF2 Visual Programmer ===")
+
 	// Создание приложения Fyne
 	myApp := app.New()
 	myApp.Settings().SetTheme(&CustomTheme{})
@@ -18,21 +21,29 @@ func main() {
 	window.SetMaster()
 	window.Resize(fyne.NewSize(1200, 800))
 
-	// Инициализация менеджера хаба
-	log.Println("=== Инициализация LPF2 Visual Programmer ===")
+	// Настройка обработки ошибок
+	window.SetCloseIntercept(func() {
+		log.Println("Закрытие приложения...")
+		window.Close()
+	})
 
+	// Инициализация менеджера хаба
+	log.Println("Инициализация менеджера хаба...")
 	hubMgr, err := NewHubManager()
 	if err != nil {
 		log.Fatalf("Ошибка инициализации менеджера хаба: %v", err)
 	}
 
 	// Инициализация системы визуального программирования
+	log.Println("Инициализация менеджера программ...")
 	programMgr := NewProgramManager(hubMgr)
 
 	// Инициализация GUI
+	log.Println("Инициализация GUI...")
 	gui := NewGUI(window, hubMgr, programMgr)
 
 	// Показ окна и запуск приложения
+	log.Println("Запуск GUI...")
 	window.SetContent(gui.BuildUI())
 
 	// Запускаем периодическое обновление статуса подключения
@@ -48,5 +59,6 @@ func main() {
 	window.ShowAndRun()
 
 	// Очистка при закрытии
+	log.Println("Очистка ресурсов...")
 	hubMgr.Disconnect()
 }
