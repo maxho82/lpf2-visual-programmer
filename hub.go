@@ -19,6 +19,8 @@ type HubManager struct {
 	connectionMutex sync.RWMutex
 	hubInfo         *HubInfo
 	stopScan        context.CancelFunc
+	services        map[string]tinybluetooth.DeviceService        // ДОБАВЛЕНО
+	characteristics map[string]tinybluetooth.DeviceCharacteristic // ДОБАВЛЕНО
 }
 
 // HubInfo содержит информацию о подключенном хабе
@@ -58,6 +60,8 @@ func NewHubManager() (*HubManager, error) {
 		hubInfo: &HubInfo{
 			Ports: make([]PortInfo, 6),
 		},
+		services:        make(map[string]tinybluetooth.DeviceService),        // ДОБАВЛЕНО
+		characteristics: make(map[string]tinybluetooth.DeviceCharacteristic), // ДОБАВЛЕНО
 	}, nil
 }
 
@@ -130,11 +134,11 @@ func (hm *HubManager) ScanForHubs(timeout time.Duration) ([]HubInfo, error) {
 }
 
 // Connect подключается к выбранному хабу
+// Connect подключается к хабу - ДОБАВИМ ОБНАРУЖЕНИЕ СЛУЖБ
 func (hm *HubManager) Connect(address string) error {
 	hm.connectionMutex.Lock()
 	defer hm.connectionMutex.Unlock()
 
-	// Если уже подключены, отключаемся
 	if hm.isConnected {
 		hm.Disconnect()
 	}
@@ -171,7 +175,7 @@ func (hm *HubManager) Connect(address string) error {
 		return fmt.Errorf("устройство с адресом %s не найдено", address)
 	}
 
-	// Подключаемся (как в тестовом коде)
+	// Подключаемся
 	log.Printf("Устанавливаем соединение с %s...", address)
 	device, err := hm.adapter.Connect(targetDevice.Address, tinybluetooth.ConnectionParams{})
 	if err != nil {
@@ -181,6 +185,32 @@ func (hm *HubManager) Connect(address string) error {
 	hm.device = device
 	hm.deviceAddress = address
 	hm.isConnected = true
+
+	// ОБНАРУЖИВАЕМ СЛУЖБЫ И ХАРАКТЕРИСТИКИ - ВАЖНО!
+	log.Println("Обнаружение служб и характеристик...")
+	services, err := device.DiscoverServices(nil)
+	if err != nil {
+		log.Printf("Ошибка обнаружения служб: %v", err)
+	} else {
+		for _, service := range services {
+			uuid := service.UUID().String()
+			log.Printf("Найдена служба: %s", uuid)
+			hm.services[uuid] = service
+
+			// Обнаруживаем характеристики
+			chars, err := service.DiscoverCharacteristics(nil)
+			if err != nil {
+				log.Printf("Ошибка обнаружения характеристик: %v", err)
+				continue
+			}
+
+			for _, char := range chars {
+				charUUID := char.UUID().String()
+				log.Printf("  Характеристика: %s", charUUID)
+				hm.characteristics[charUUID] = char
+			}
+		}
+	}
 
 	// Обновляем информацию о хабе
 	hm.hubInfo.Name = targetDevice.LocalName()
@@ -234,9 +264,25 @@ func (hm *HubManager) WriteCharacteristic(uuid string, data []byte) error {
 		return fmt.Errorf("не подключено к хабу")
 	}
 
-	log.Printf("Запись в характеристику %s: %v", uuid, data)
+	// Находим характеристику по UUID
+	for _, service := range hm.services {
+		chars, err := service.DiscoverCharacteristics(nil)
+		if err != nil {
+			continue
+		}
 
-	// В упрощенной версии просто логируем
-	// В реальной реализации нужно найти характеристику и отправить данные
-	return nil
+		for _, char := range chars {
+			if char.UUID().String() == uuid {
+				// Отправляем данные
+				_, err := char.WriteWithoutResponse(data)
+				if err != nil {
+					return fmt.Errorf("ошибка отправки данных: %v", err)
+				}
+				log.Printf("Данные успешно отправлены на хаб")
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("характеристика %s не найдена", uuid)
 }

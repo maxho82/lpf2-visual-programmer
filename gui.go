@@ -32,8 +32,9 @@ type GUI struct {
 	// Панели
 	devicePanel     fyne.CanvasObject
 	propertiesPanel fyne.CanvasObject
-	programPanel    fyne.CanvasObject
-	blocksPanel     fyne.CanvasObject
+	//programScroll   *container.Scroll // ДОБАВЛЕНО - прямой доступ к Scroll
+	programPanel *container.Scroll
+	blocksPanel  fyne.CanvasObject
 }
 
 // NewGUI создает новый GUI
@@ -61,8 +62,24 @@ func (gui *GUI) BuildUI() fyne.CanvasObject {
 	// Создаем панель блоков
 	gui.blocksPanel = gui.createBlocksPanel()
 
-	// Создаем центральную панель программирования
-	gui.programPanel = container.NewStack(gui.programMgr.GetCanvas())
+	// Получаем холст программы
+	canvasObj := gui.programMgr.GetCanvas()
+	if scroll, ok := canvasObj.(*container.Scroll); ok {
+		gui.programPanel = scroll
+	} else {
+		// Если не Scroll, создаем новый
+		content := container.NewWithoutLayout()
+
+		// Создаем сетку
+		grid := gui.programMgr.createGrid()
+		content.Add(grid)
+
+		gui.programPanel = container.NewScroll(content)
+		gui.programPanel.SetMinSize(fyne.NewSize(800, 600))
+	}
+
+	// Устанавливаем содержимое programMgr.canvas
+	gui.programMgr.canvas = gui.programPanel
 
 	// Разделители
 	leftSplit := container.NewHSplit(gui.devicePanel, gui.programPanel)
@@ -132,6 +149,29 @@ func (gui *GUI) createToolbar() *fyne.Container {
 		gui.createBlinkProgram()
 	})
 
+	testLEDButton := widget.NewButtonWithIcon("Тест светодиод", theme.RadioButtonIcon(), func() {
+		if !gui.hubMgr.IsConnected() {
+			dialog.ShowError(fmt.Errorf("не подключено к хабу"), gui.window)
+			return
+		}
+
+		// Включить красный светодиод
+		err := gui.programMgr.deviceMgr.SetLEDColor(6, 255, 0, 0)
+		if err != nil {
+			dialog.ShowError(err, gui.window)
+		} else {
+			dialog.ShowInformation("Успех", "Светодиод включен (красный)", gui.window)
+
+			// Через 1 секунду выключить
+			go func() {
+				time.Sleep(1 * time.Second)
+				fyne.Do(func() {
+					gui.programMgr.deviceMgr.SetLEDColor(6, 0, 0, 0)
+				})
+			}()
+		}
+	})
+
 	// Метка статуса
 	gui.statusLabel = widget.NewLabel("Не подключено")
 	gui.statusLabel.Alignment = fyne.TextAlignCenter
@@ -146,6 +186,7 @@ func (gui *GUI) createToolbar() *fyne.Container {
 		widget.NewSeparator(),
 		gui.clearButton,
 		blinkButton,
+		testLEDButton, // ДОБАВЛЕНО
 		layout.NewSpacer(),
 		gui.statusLabel,
 		layout.NewSpacer(),
@@ -405,23 +446,28 @@ func (gui *GUI) addBlockToCanvas(block *ProgramBlock) {
 	// Создаем виджет блока
 	blockWidget := gui.programMgr.CreateBlockWidget(block)
 
-	// Получаем контейнер холста
-	if scroll, ok := gui.programPanel.(*container.Scroll); ok {
-		if content, ok := scroll.Content.(*fyne.Container); ok {
-			// Добавляем виджет в контейнер
-			content.Add(blockWidget)
+	// Добавляем на холст
+	if gui.programPanel != nil {
+		if content, ok := gui.programPanel.Content.(*fyne.Container); ok {
+			// Проверяем, нет ли уже такого блока
+			for _, obj := range content.Objects {
+				if db, ok := obj.(*DraggableBlock); ok && db.block.ID == block.ID {
+					log.Printf("Блок ID %d уже на холсте, пропускаем", block.ID)
+					return
+				}
+			}
 
-			// Обновляем отображение
+			content.Add(blockWidget)
 			content.Refresh()
-			scroll.Refresh()
+			gui.programPanel.Refresh()
 
 			log.Printf("Блок %s добавлен на холст. Всего блоков: %d",
 				block.Title, len(content.Objects))
 		} else {
-			log.Println("Ошибка: контейнер холста не найден")
+			log.Println("Ошибка: контент programPanel не является *fyne.Container")
 		}
 	} else {
-		log.Println("Ошибка: Scroll контейнер не найден")
+		log.Println("Ошибка: programPanel равен nil")
 	}
 }
 
@@ -602,15 +648,14 @@ func (gui *GUI) updateConnectionStatus() {
 	})
 }
 
-// updateProgramCanvas обновляет весь холст
 func (gui *GUI) updateProgramCanvas() {
 	log.Println("Полное обновление холста...")
 
 	// Вызываем обновление в ProgramManager
 	gui.programMgr.updateCanvas()
 
-	// Обновляем прокручиваемую область
-	if scroll, ok := gui.programPanel.(*container.Scroll); ok {
-		scroll.Refresh()
+	// Обновляем programPanel, если он существует
+	if gui.programPanel != nil {
+		gui.programPanel.Refresh()
 	}
 }

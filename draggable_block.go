@@ -1,9 +1,13 @@
 package main
 
 import (
+	"image/color"
 	"log"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -19,14 +23,43 @@ type DraggableBlock struct {
 }
 
 // NewDraggableBlock создает перетаскиваемый блок
-func NewDraggableBlock(block *ProgramBlock, pm *ProgramManager, content fyne.CanvasObject) *DraggableBlock {
+func NewDraggableBlock(block *ProgramBlock, pm *ProgramManager) *DraggableBlock {
 	d := &DraggableBlock{
-		block:   block,
-		pm:      pm,
-		content: content,
+		block: block,
+		pm:    pm,
 	}
 	d.ExtendBaseWidget(d)
+	d.createContent()
 	return d
+}
+
+func (d *DraggableBlock) createContent() {
+	// Фон блока
+	bg := canvas.NewRectangle(d.block.Color)
+	bg.SetMinSize(fyne.NewSize(float32(d.block.Width), float32(d.block.Height)))
+
+	// Заголовок
+	title := canvas.NewText(d.block.Title, color.White)
+	title.TextStyle.Bold = true
+	title.Alignment = fyne.TextAlignCenter
+	title.TextSize = 14
+
+	// Описание
+	desc := canvas.NewText(d.block.Description, color.White)
+	desc.Alignment = fyne.TextAlignCenter
+	desc.TextSize = 10
+
+	// Контейнер содержимого
+	content := container.NewVBox(
+		container.NewCenter(title),
+		container.NewCenter(desc),
+	)
+
+	// Объединяем фон и содержимое
+	d.content = container.NewStack(
+		bg,
+		container.NewPadded(content),
+	)
 }
 
 // CreateRenderer создает рендерер
@@ -37,38 +70,31 @@ func (d *DraggableBlock) CreateRenderer() fyne.WidgetRenderer {
 	}
 }
 
-// Tapped обрабатывает клик - ВАЖНО: функция должна вызываться!
+// Tapped обрабатывает клик
 func (d *DraggableBlock) Tapped(e *fyne.PointEvent) {
 	log.Printf("Клик по блоку: %s (ID: %d)", d.block.Title, d.block.ID)
-
-	// Устанавливаем выбранный блок
 	d.pm.selected = d.block
 	d.pm.ShowBlockProperties(d.block)
-
-	// Обновляем выделение (можно добавить визуальное выделение)
-	d.Refresh()
 }
 
-// TappedSecondary обрабатывает правый клик
-func (d *DraggableBlock) TappedSecondary(e *fyne.PointEvent) {
-	// Можно добавить контекстное меню
+// DoubleTapped обрабатывает двойной клик
+func (d *DraggableBlock) DoubleTapped(e *fyne.PointEvent) {
+	// Можно добавить дополнительные действия
 }
 
-// Dragged обрабатывает перетаскивание
+// Dragged обрабатывает перетаскивание - УЛУЧШЕННАЯ ЛОГИКА
 func (d *DraggableBlock) Dragged(e *fyne.DragEvent) {
 	if !d.isDragging {
 		d.isDragging = true
 		d.dragStart = e.Position
 		d.blockStart = d.Position()
+		return
 	}
 
 	// Вычисляем новую позицию
 	deltaX := e.Position.X - d.dragStart.X
 	deltaY := e.Position.Y - d.dragStart.Y
-	newPos := fyne.NewPos(
-		d.blockStart.X+deltaX,
-		d.blockStart.Y+deltaY,
-	)
+	newPos := fyne.NewPos(d.blockStart.X+deltaX, d.blockStart.Y+deltaY)
 
 	// Ограничиваем движение
 	if newPos.X < 0 {
@@ -80,20 +106,35 @@ func (d *DraggableBlock) Dragged(e *fyne.DragEvent) {
 
 	// Перемещаем виджет
 	d.Move(newPos)
-
-	// Обновляем позицию в данных блока
-	d.block.X = float64(newPos.X)
-	d.block.Y = float64(newPos.Y)
-
-	// Обновляем виджет
-	d.Refresh()
 }
 
 // DragEnd завершает перетаскивание
 func (d *DraggableBlock) DragEnd() {
-	d.isDragging = false
-	log.Printf("Блок %s перемещен в позицию: %.0f, %.0f",
-		d.block.Title, d.block.X, d.block.Y)
+	if d.isDragging {
+		// Обновляем позицию в данных блока
+		currentPos := d.Position()
+		d.block.X = float64(currentPos.X)
+		d.block.Y = float64(currentPos.Y)
+		d.isDragging = false
+
+		log.Printf("Блок %s перемещен в позицию: %.0f, %.0f",
+			d.block.Title, d.block.X, d.block.Y)
+	}
+}
+
+// MouseIn изменяет курсор при наведении
+func (d *DraggableBlock) MouseIn(e *desktop.MouseEvent) {
+	// Курсор изменяется при наведении
+}
+
+// MouseOut сбрасывает курсор при уходе мыши
+func (d *DraggableBlock) MouseOut() {
+	// Курсор возвращается к стандартному
+}
+
+// Cursor возвращает курсор для виджета
+func (d *DraggableBlock) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
 }
 
 type draggableBlockRenderer struct {
@@ -110,7 +151,6 @@ func (r *draggableBlockRenderer) MinSize() fyne.Size {
 }
 
 func (r *draggableBlockRenderer) Refresh() {
-	// Обновляем содержимое
 	r.objects[0].Refresh()
 }
 
