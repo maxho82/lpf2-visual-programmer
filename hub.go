@@ -211,7 +211,15 @@ func (hm *HubManager) Connect(address string) error {
 			}
 		}
 	}
+	log.Println("Проверка наличия необходимых характеристик...")
 
+	// Проверяем наличие характеристики для записи команд
+	writeUUID := "00001565-1212-efde-1523-785feabcd123"
+	if _, hasWrite := hm.characteristics[writeUUID]; !hasWrite {
+		log.Printf("ВНИМАНИЕ: Характеристика для записи %s не найдена!", writeUUID)
+	} else {
+		log.Printf("Характеристика для записи %s найдена", writeUUID)
+	}
 	// Обновляем информацию о хабе
 	hm.hubInfo.Name = targetDevice.LocalName()
 	hm.hubInfo.Address = address
@@ -264,6 +272,10 @@ func (hm *HubManager) WriteCharacteristic(uuid string, data []byte) error {
 		return fmt.Errorf("не подключено к хабу")
 	}
 
+	log.Printf("Отправка данных в характеристику %s:", uuid)
+	log.Printf("Данные: %v", data)
+	log.Printf("HEX: %x", data)
+
 	// Находим характеристику по UUID
 	for _, service := range hm.services {
 		chars, err := service.DiscoverCharacteristics(nil)
@@ -276,12 +288,18 @@ func (hm *HubManager) WriteCharacteristic(uuid string, data []byte) error {
 				// Отправляем данные
 				_, err := char.WriteWithoutResponse(data)
 				if err != nil {
+					log.Printf("Ошибка отправки данных: %v", err)
 					return fmt.Errorf("ошибка отправки данных: %v", err)
 				}
 				log.Printf("Данные успешно отправлены на хаб")
 				return nil
 			}
 		}
+	}
+
+	log.Printf("Характеристика %s не найдена. Доступные характеристики:", uuid)
+	for charUUID := range hm.characteristics {
+		log.Printf("  - %s", charUUID)
 	}
 
 	return fmt.Errorf("характеристика %s не найдена", uuid)

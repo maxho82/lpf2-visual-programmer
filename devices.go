@@ -55,9 +55,31 @@ func (dm *DeviceManager) UpdateDevices(portInfos []PortInfo) {
 		}
 
 		device.DeviceType = portInfo.DeviceType
-		device.Name = getDeviceName(portInfo.DeviceType) // Исправлено!
+		device.Name = dm.getDeviceName(portInfo.DeviceType) // Используем метод структуры
 		device.IsConnected = portInfo.IsConnected
 		device.LastUpdate = time.Now()
+	}
+}
+
+// getDeviceName возвращает имя устройства по типу
+func (dm *DeviceManager) getDeviceName(deviceType byte) string {
+	switch deviceType {
+	case 0x00:
+		return "Нет устройства"
+	case 0x01:
+		return "Основной мотор"
+	case 0x02:
+		return "Трехосный датчик наклона"
+	case 0x08:
+		return "Простой светодиод"
+	case 0x17:
+		return "RGB светодиод"
+	case 0x14, 0x15, 0x16:
+		return "Датчик расстояния"
+	case 0x20:
+		return "Внешний мотор"
+	default:
+		return fmt.Sprintf("Неизвестное (0x%02x)", deviceType)
 	}
 }
 
@@ -119,18 +141,25 @@ func (dm *DeviceManager) SetLEDColor(portID byte, red, green, blue byte) error {
 		return fmt.Errorf("не подключено к хабу")
 	}
 
-	// 1. Устанавливаем режим датчика в "absolute" (0x00)
-	modeCmd := SetSensorModeCommand{
-		PortID: portID,
-		Mode:   0x00, // absolute
+	log.Printf("Установка цвета светодиода на порту %d: RGB(%d,%d,%d)", portID, red, green, blue)
+
+	// 1. Устанавливаем режим порта для RGB светодиода
+	modeCmd := PortModeCommand{
+		PortID:     portID,
+		DeviceType: 0x17, // RGB светодиод
+		Mode:       0x00, // absolute
 	}
-	modeData, err := dm.parser.EncodeSetSensorMode(modeCmd)
+
+	modeData, err := dm.parser.EncodePortModeCommand(modeCmd)
 	if err != nil {
 		return fmt.Errorf("ошибка кодирования режима: %v", err)
 	}
-	err = dm.hubMgr.WriteCharacteristic("00001563-1212-efde-1523-785feabcd123", modeData)
+
+	// Отправляем команду установки режима
+	err = dm.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", modeData)
 	if err != nil {
-		return fmt.Errorf("ошибка установки режима: %v", err)
+		log.Printf("Ошибка установки режима: %v", err)
+		// Продолжаем, возможно режим уже установлен
 	}
 
 	// 2. Отправляем команду цвета
@@ -140,16 +169,19 @@ func (dm *DeviceManager) SetLEDColor(portID byte, red, green, blue byte) error {
 		Green:  green,
 		Blue:   blue,
 	}
+
 	data, err := dm.parser.EncodeLEDCommand(cmd)
 	if err != nil {
-		return fmt.Errorf("ошибка кодирования цвета: %v", err)
-	}
-	err = dm.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data)
-	if err != nil {
-		return fmt.Errorf("ошибка отправки цвета: %v", err)
+		return fmt.Errorf("ошибка кодирования команды: %v", err)
 	}
 
-	// Обновляем состояние устройства
+	// Отправка команды цвета
+	err = dm.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data)
+	if err != nil {
+		return fmt.Errorf("ошибка отправки команды: %v", err)
+	}
+
+	// Обновление состояния
 	dm.devicesMu.Lock()
 	if device, exists := dm.devices[portID]; exists {
 		device.Properties["red"] = red
@@ -188,24 +220,4 @@ func (dm *DeviceManager) GetDevice(portID byte) (*Device, bool) {
 	}
 
 	return device, true
-}
-
-// getDeviceName возвращает имя устройства по типу
-func getDeviceName(deviceType byte) string {
-	switch deviceType {
-	case 0x00:
-		return "Нет устройства"
-	case 0x01:
-		return "Основной мотор"
-	case 0x02:
-		return "Трехосный датчик наклона"
-	case 0x08:
-		return "Светодиод"
-	case 0x14, 0x15, 0x16, 0x17:
-		return "Датчик расстояния"
-	case 0x20:
-		return "Внешний мотор"
-	default:
-		return fmt.Sprintf("Неизвестное (0x%02x)", deviceType)
-	}
 }

@@ -172,6 +172,38 @@ func (gui *GUI) createToolbar() *fyne.Container {
 		}
 	})
 
+	// В createToolbar добавьте:
+	testRawButton := widget.NewButtonWithIcon("Тест RAW", theme.MediaPlayIcon(), func() {
+		if !gui.hubMgr.IsConnected() {
+			dialog.ShowError(fmt.Errorf("не подключено к хабу"), gui.window)
+			return
+		}
+
+		// Простейшая команда для светодиода (красный)
+		data := []byte{0x08, 0x04, 0x06, 0x03, 0xFF, 0x00, 0x00, 0x00}
+		err := gui.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
+		} else {
+			dialog.ShowInformation("Успех", "Команда отправлена", gui.window)
+		}
+	})
+
+	// Кнопка теста протокола
+	testProtocolButton := widget.NewButtonWithIcon("Тест протокола", theme.VisibilityIcon(), func() {
+		if !gui.hubMgr.IsConnected() {
+			dialog.ShowError(fmt.Errorf("не подключено к хабу"), gui.window)
+			return
+		}
+
+		// Запускаем тест в отдельной горутине
+		go func() {
+			TestLPF2Protocol(gui.hubMgr)
+		}()
+
+		dialog.ShowInformation("Тест запущен", "Проверяем протокол LPF2. Смотрите логи в консоли.", gui.window)
+	})
+
 	// Метка статуса
 	gui.statusLabel = widget.NewLabel("Не подключено")
 	gui.statusLabel.Alignment = fyne.TextAlignCenter
@@ -186,7 +218,9 @@ func (gui *GUI) createToolbar() *fyne.Container {
 		widget.NewSeparator(),
 		gui.clearButton,
 		blinkButton,
-		testLEDButton, // ДОБАВЛЕНО
+		testLEDButton,      // ДОБАВЛЕНО
+		testRawButton,      // Добавляем эту кнопку
+		testProtocolButton, // Добавляем эту кнопку
 		layout.NewSpacer(),
 		gui.statusLabel,
 		layout.NewSpacer(),
