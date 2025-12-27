@@ -180,11 +180,79 @@ func (gui *GUI) createToolbar() *fyne.Container {
 		}
 
 		// Простейшая команда для светодиода (красный)
-		data := []byte{0x0B, 0x01, 0x02, 0x06, 0x17, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01}
+		data := []byte{0x01, 0x02, 0x06, 0x17, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x01}
 		//data := []byte{0x06, 0x04, 0x06, 0x01, 0x01, 0x00} // 0x08, 0x00, 0x81, 0xXX, 0x06, 0x51, 0x00, 0xFF, 0x00, 0x00
 		//data := []byte{0x08, 0x00, 0x81, 0x01, 0x06, 0x51, 0x00, 0xFF, 0x00, 0x00}          //{0x06, 0x04, 0x01, 0x01, 0x0A, 0x00}
 		err := gui.hubMgr.WriteCharacteristic("00001563-1212-efde-1523-785feabcd123", data) // 00001624-1212-EFDE-1623-785FEABCD123
 		//err := gui.hubMgr.WriteCharacteristic("00001624-1212-EFDE-1623-785FEABCD123", data) // 00001565-1212-efde-1523-785feabcd123
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
+		}
+		data = []byte{0x06, 0x04, 0x01, 0x01}
+		err = gui.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data) // 00001624-1212-EFDE-1623-785FEABCD123
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
+		}
+		time.Sleep(2 * time.Second)
+
+		data = []byte{0x06, 0x04, 0x01, 0x02}
+		err = gui.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data) // 00001624-1212-EFDE-1623-785FEABCD123
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
+		}
+		time.Sleep(2 * time.Second)
+
+		data = []byte{0x06, 0x04, 0x01, 0x03}
+		err = gui.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data) // 00001624-1212-EFDE-1623-785FEABCD123
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
+		}
+		time.Sleep(2 * time.Second)
+
+		data = []byte{0x06, 0x04, 0x01, 0x04}
+		err = gui.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data) // 00001624-1212-EFDE-1623-785FEABCD123
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
+		}
+		time.Sleep(2 * time.Second)
+
+		data = []byte{0x06, 0x04, 0x01, 0x05}
+		err = gui.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data) // 00001624-1212-EFDE-1623-785FEABCD123
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
+		}
+		time.Sleep(2 * time.Second)
+
+		data = []byte{0x06, 0x04, 0x01, 0x06}
+		err = gui.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data) // 00001624-1212-EFDE-1623-785FEABCD123
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
+		}
+		time.Sleep(2 * time.Second)
+
+		data = []byte{0x06, 0x04, 0x01, 0x07}
+		err = gui.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data) // 00001624-1212-EFDE-1623-785FEABCD123
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
+		}
+		time.Sleep(2 * time.Second)
+
+		data = []byte{0x06, 0x04, 0x01, 0x08}
+		err = gui.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data) // 00001624-1212-EFDE-1623-785FEABCD123
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
+		}
+		time.Sleep(2 * time.Second)
+
+		data = []byte{0x06, 0x04, 0x01, 0x09}
+		err = gui.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data) // 00001624-1212-EFDE-1623-785FEABCD123
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
+		}
+		time.Sleep(2 * time.Second)
+
+		data = []byte{0x06, 0x04, 0x01, 0x03}
+		err = gui.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data) // 00001624-1212-EFDE-1623-785FEABCD123
 		if err != nil {
 			dialog.ShowError(fmt.Errorf("ошибка: %v", err), gui.window)
 		} else {

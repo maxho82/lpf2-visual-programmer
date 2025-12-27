@@ -19,7 +19,7 @@ func main() {
 	// Создание главного окна
 	window := myApp.NewWindow("Визуальный программист LPF2")
 	window.SetMaster()
-	window.Resize(fyne.NewSize(1200, 800))
+	window.Resize(fyne.NewSize(1280, 800))
 
 	// Настройка обработки ошибок
 	window.SetCloseIntercept(func() {

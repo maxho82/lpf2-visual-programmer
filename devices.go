@@ -141,30 +141,11 @@ func (dm *DeviceManager) SetLEDColor(portID byte, red, green, blue byte) error {
 		return fmt.Errorf("не подключено к хабу")
 	}
 
-	log.Printf("Установка цвета светодиода на порту %d: RGB(%d,%d,%d)", portID, red, green, blue)
+	log.Printf("Установка цвета светодиода: RGB(%d,%d,%d)", red, green, blue)
 
-	// 1. Устанавливаем режим порта для RGB светодиода
-	modeCmd := PortModeCommand{
-		PortID:     portID,
-		DeviceType: 0x17, // RGB светодиод
-		Mode:       0x00, // absolute
-	}
-
-	modeData, err := dm.parser.EncodePortModeCommand(modeCmd)
-	if err != nil {
-		return fmt.Errorf("ошибка кодирования режима: %v", err)
-	}
-
-	// Отправляем команду установки режима
-	err = dm.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", modeData)
-	if err != nil {
-		log.Printf("Ошибка установки режима: %v", err)
-		// Продолжаем, возможно режим уже установлен
-	}
-
-	// 2. Отправляем команду цвета
+	// Создаем команду и отправляем
 	cmd := LEDCommand{
-		PortID: portID,
+		PortID: portID, // Примечание: согласно протоколу, команда цвета сама по себе не содержит порта
 		Red:    red,
 		Green:  green,
 		Blue:   blue,
@@ -178,18 +159,8 @@ func (dm *DeviceManager) SetLEDColor(portID byte, red, green, blue byte) error {
 	// Отправка команды цвета
 	err = dm.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data)
 	if err != nil {
-		return fmt.Errorf("ошибка отправки команды: %v", err)
+		return fmt.Errorf("ошибка отправки цвета: %v", err)
 	}
-
-	// Обновление состояния
-	dm.devicesMu.Lock()
-	if device, exists := dm.devices[portID]; exists {
-		device.Properties["red"] = red
-		device.Properties["green"] = green
-		device.Properties["blue"] = blue
-		device.LastUpdate = time.Now()
-	}
-	dm.devicesMu.Unlock()
 
 	return nil
 }
