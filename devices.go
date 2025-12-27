@@ -83,83 +83,143 @@ func (dm *DeviceManager) getDeviceName(deviceType byte) string {
 	}
 }
 
+// StopMotor останавливает мотор
+func (dm *DeviceManager) StopMotor(portID byte) error {
+	return dm.SetMotorPower(portID, 0, 0)
+}
+
+// SetLEDColor устанавливает цвет светодиода (ДИСКРЕТНЫЙ режим RGB)
+func (dm *DeviceManager) SetLEDColor(portID byte, red, green, blue byte) error {
+	if !dm.hubMgr.IsConnected() {
+		return fmt.Errorf("не подключено к хабу")
+	}
+
+	log.Printf("Установка RGB цвета светодиода на порту %d: (%d,%d,%d)", portID, red, green, blue)
+
+	// 1. Устанавливаем режим светодиода в DISCRETE (для RGB)
+	modeData, err := dm.parser.EncodeLEDModeCommand(portID, LED_DISCRETE_MODE)
+	if err != nil {
+		return fmt.Errorf("ошибка кодирования режима: %v", err)
+	}
+
+	err = dm.hubMgr.WriteCharacteristic(INPUT_COMMAND_UUID, modeData)
+	if err != nil {
+		log.Printf("Предупреждение при установке режима: %v", err)
+		// Не прерываем выполнение, продолжаем
+	}
+
+	// 2. Отправляем команду RGB цвета
+	cmd := LEDCommand{
+		PortID: portID,
+		Red:    red,
+		Green:  green,
+		Blue:   blue,
+	}
+
+	colorData, err := dm.parser.EncodeLEDCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("ошибка кодирования цвета: %v", err)
+	}
+
+	err = dm.hubMgr.WriteCharacteristic(OUTPUT_COMMAND_UUID, colorData)
+	if err != nil {
+		return fmt.Errorf("ошибка отправки цвета: %v", err)
+	}
+
+	// Обновляем состояние
+	dm.devicesMu.Lock()
+	if device, exists := dm.devices[portID]; exists {
+		device.Properties["red"] = red
+		device.Properties["green"] = green
+		device.Properties["blue"] = blue
+		device.Properties["mode"] = "discrete"
+		device.LastUpdate = time.Now()
+	}
+	dm.devicesMu.Unlock()
+
+	return nil
+}
+
+// SetLEDColorIndex устанавливает цвет светодиода по индексу (АБСОЛЮТНЫЙ режим)
+func (dm *DeviceManager) SetLEDColorIndex(portID byte, colorIndex byte) error {
+	if !dm.hubMgr.IsConnected() {
+		return fmt.Errorf("не подключено к хабу")
+	}
+
+	log.Printf("Установка цвета светодиода (индекс) на порту %d: %d", portID, colorIndex)
+
+	// 1. Устанавливаем режим светодиода в ABSOLUTE
+	modeData, err := dm.parser.EncodeLEDModeCommand(portID, LED_ABSOLUTE_MODE)
+	if err != nil {
+		return fmt.Errorf("ошибка кодирования режима: %v", err)
+	}
+
+	err = dm.hubMgr.WriteCharacteristic(INPUT_COMMAND_UUID, modeData)
+	if err != nil {
+		log.Printf("Предупреждение при установке режима: %v", err)
+	}
+
+	// 2. Отправляем команду индекса цвета
+	colorData, err := dm.parser.EncodeLEDIndexCommand(portID, colorIndex)
+	if err != nil {
+		return fmt.Errorf("ошибка кодирования индекса: %v", err)
+	}
+
+	err = dm.hubMgr.WriteCharacteristic(OUTPUT_COMMAND_UUID, colorData)
+	if err != nil {
+		return fmt.Errorf("ошибка отправки индекса: %v", err)
+	}
+
+	// Обновляем состояние
+	dm.devicesMu.Lock()
+	if device, exists := dm.devices[portID]; exists {
+		device.Properties["color_index"] = colorIndex
+		device.Properties["mode"] = "absolute"
+		device.LastUpdate = time.Now()
+	}
+	dm.devicesMu.Unlock()
+
+	return nil
+}
+
 // SetMotorPower устанавливает мощность мотора
 func (dm *DeviceManager) SetMotorPower(portID byte, power int8, duration uint16) error {
 	if !dm.hubMgr.IsConnected() {
 		return fmt.Errorf("не подключено к хабу")
 	}
 
-	log.Printf("Установка мощности мотора на порту %d: %d%% на %d мс", portID, power, duration)
+	log.Printf("Установка мощности мотора на порту %d: %d%%", portID, power)
 
-	// Создание команды
 	cmd := MotorCommand{
 		PortID:   portID,
 		Power:    power,
 		Duration: duration,
 	}
 
-	data, err := dm.parser.EncodeMotorCommand(cmd)
+	motorData, err := dm.parser.EncodeMotorCommand(cmd)
 	if err != nil {
-		return fmt.Errorf("ошибка кодирования команды: %v", err)
+		return fmt.Errorf("ошибка кодирования команды мотора: %v", err)
 	}
 
-	// Отправка команды
-	err = dm.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data)
+	err = dm.hubMgr.WriteCharacteristic(OUTPUT_COMMAND_UUID, motorData)
 	if err != nil {
-		return fmt.Errorf("ошибка отправки команды: %v", err)
+		return fmt.Errorf("ошибка отправки команды мотора: %v", err)
 	}
 
-	// Обновление состояния устройства
+	// Обновление состояния и таймер для остановки (если нужно)
 	dm.devicesMu.Lock()
 	if device, exists := dm.devices[portID]; exists {
 		device.Properties["power"] = power
-		device.Properties["duration"] = duration
 		device.Properties["is_running"] = true
 		device.LastUpdate = time.Now()
 	}
 	dm.devicesMu.Unlock()
 
-	// Если указана длительность, через указанное время останавливаем мотор
 	if duration > 0 {
 		go func() {
 			time.Sleep(time.Duration(duration) * time.Millisecond)
 			dm.StopMotor(portID)
 		}()
-	}
-
-	return nil
-}
-
-// StopMotor останавливает мотор
-func (dm *DeviceManager) StopMotor(portID byte) error {
-	return dm.SetMotorPower(portID, 0, 0)
-}
-
-// SetLEDColor устанавливает цвет светодиода
-func (dm *DeviceManager) SetLEDColor(portID byte, red, green, blue byte) error {
-	if !dm.hubMgr.IsConnected() {
-		return fmt.Errorf("не подключено к хабу")
-	}
-
-	log.Printf("Установка цвета светодиода: RGB(%d,%d,%d)", red, green, blue)
-
-	// Создаем команду и отправляем
-	cmd := LEDCommand{
-		PortID: portID, // Примечание: согласно протоколу, команда цвета сама по себе не содержит порта
-		Red:    red,
-		Green:  green,
-		Blue:   blue,
-	}
-
-	data, err := dm.parser.EncodeLEDCommand(cmd)
-	if err != nil {
-		return fmt.Errorf("ошибка кодирования команды: %v", err)
-	}
-
-	// Отправка команды цвета
-	err = dm.hubMgr.WriteCharacteristic("00001565-1212-efde-1523-785feabcd123", data)
-	if err != nil {
-		return fmt.Errorf("ошибка отправки цвета: %v", err)
 	}
 
 	return nil
