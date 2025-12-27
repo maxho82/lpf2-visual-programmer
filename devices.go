@@ -9,10 +9,29 @@ import (
 
 // DeviceManager управляет устройствами хаба
 type DeviceManager struct {
-	hubMgr    *HubManager
-	parser    *LPF2Parser
-	devices   map[byte]*Device
-	devicesMu sync.RWMutex
+	hubMgr          *HubManager
+	parser          *LPF2Parser
+	devices         map[byte]*Device
+	devicesMu       sync.RWMutex
+	onDeviceChanged func(portID byte, device *Device) // Callback при изменении устройства
+}
+
+// SetDeviceChangedCallback устанавливает callback для уведомлений об изменениях
+func (dm *DeviceManager) SetDeviceChangedCallback(callback func(portID byte, device *Device)) {
+	dm.devicesMu.Lock()
+	defer dm.devicesMu.Unlock()
+	dm.onDeviceChanged = callback
+}
+
+// notifyDeviceChanged уведомляет об изменении устройства
+func (dm *DeviceManager) notifyDeviceChanged(portID byte, device *Device) {
+	dm.devicesMu.RLock()
+	callback := dm.onDeviceChanged
+	dm.devicesMu.RUnlock()
+
+	if callback != nil {
+		callback(portID, device)
+	}
 }
 
 // Device представляет подключенное устройство
@@ -40,6 +59,7 @@ func (dm *DeviceManager) UpdateDevices(portInfos []PortInfo) {
 	dm.devicesMu.Lock()
 	defer dm.devicesMu.Unlock()
 
+	// Обновляем или создаем устройства
 	for _, portInfo := range portInfos {
 		if portInfo.PortID == 0 {
 			continue
@@ -55,9 +75,32 @@ func (dm *DeviceManager) UpdateDevices(portInfos []PortInfo) {
 		}
 
 		device.DeviceType = portInfo.DeviceType
-		device.Name = dm.getDeviceName(portInfo.DeviceType) // Используем метод структуры
+		device.Name = dm.getDeviceName(portInfo.DeviceType)
 		device.IsConnected = portInfo.IsConnected
 		device.LastUpdate = time.Now()
+
+		// Сохраняем последнее значение
+		if len(portInfo.LastValue) > 0 {
+			device.LastValue = portInfo.LastValue
+
+			// Записываем значения в свойства в зависимости от типа устройства
+			switch portInfo.DeviceType {
+			case 0x01: // Мотор
+				if len(portInfo.LastValue) >= 1 {
+					device.Properties["power"] = portInfo.LastValue[0]
+				}
+			case 0x17: // RGB светодиод
+				if len(portInfo.LastValue) >= 3 {
+					device.Properties["red"] = portInfo.LastValue[0]
+					device.Properties["green"] = portInfo.LastValue[1]
+					device.Properties["blue"] = portInfo.LastValue[2]
+				}
+			case 0x02: // Датчик наклона
+				if len(portInfo.LastValue) >= 1 {
+					device.Properties["angle"] = portInfo.LastValue[0]
+				}
+			}
+		}
 	}
 }
 
@@ -134,8 +177,11 @@ func (dm *DeviceManager) SetLEDColor(portID byte, red, green, blue byte) error {
 		device.Properties["blue"] = blue
 		device.Properties["mode"] = "discrete"
 		device.LastUpdate = time.Now()
+		dm.devicesMu.Unlock()
+		dm.notifyDeviceChanged(portID, device) // Уведомляем об изменении
+	} else {
+		dm.devicesMu.Unlock()
 	}
-	dm.devicesMu.Unlock()
 
 	return nil
 }
@@ -176,8 +222,12 @@ func (dm *DeviceManager) SetLEDColorIndex(portID byte, colorIndex byte) error {
 		device.Properties["color_index"] = colorIndex
 		device.Properties["mode"] = "absolute"
 		device.LastUpdate = time.Now()
+		dm.devicesMu.Unlock()
+
+		dm.notifyDeviceChanged(portID, device) // Уведомляем об изменении
+	} else {
+		dm.devicesMu.Unlock()
 	}
-	dm.devicesMu.Unlock()
 
 	return nil
 }
@@ -212,8 +262,12 @@ func (dm *DeviceManager) SetMotorPower(portID byte, power int8, duration uint16)
 		device.Properties["power"] = power
 		device.Properties["is_running"] = true
 		device.LastUpdate = time.Now()
+		dm.devicesMu.Unlock()
+
+		dm.notifyDeviceChanged(portID, device) // Уведомляем об изменении
+	} else {
+		dm.devicesMu.Unlock()
 	}
-	dm.devicesMu.Unlock()
 
 	if duration > 0 {
 		go func() {

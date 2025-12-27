@@ -220,10 +220,17 @@ func (hm *HubManager) Connect(address string) error {
 
 	// Запускаем мониторинг сенсоров
 	if hm.sensorMonitor != nil {
-		hm.sensorMonitor.Start()
+		hm.sensorMonitor.Start() // Теперь это однократный опрос
 	}
 
-	log.Printf("Успешно подключено к %s (%s)", address, hm.hubInfo.Name)
+	// Инициируем опрос портов
+	go func() {
+		time.Sleep(1 * time.Second) // Даем время на установку соединения
+		if hm.sensorMonitor != nil {
+			hm.sensorMonitor.UpdateDevices()
+		}
+	}()
+
 	return nil
 }
 

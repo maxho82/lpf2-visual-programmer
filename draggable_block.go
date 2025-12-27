@@ -14,11 +14,11 @@ import (
 // DraggableBlock - перетаскиваемый блок
 type DraggableBlock struct {
 	widget.BaseWidget
-	block      *ProgramBlock
-	pm         *ProgramManager
-	content    fyne.CanvasObject
-	dragStart  fyne.Position
-	blockStart fyne.Position
+	block     *ProgramBlock
+	pm        *ProgramManager
+	content   fyne.CanvasObject
+	dragStart fyne.Position
+	//blockStart fyne.Position
 	isDragging bool
 }
 

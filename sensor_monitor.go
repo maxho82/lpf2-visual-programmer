@@ -8,10 +8,11 @@ import (
 
 // SensorMonitor мониторит состояние устройств и батареи
 type SensorMonitor struct {
-	hubMgr    *HubManager
-	deviceMgr *DeviceManager
-	gui       *GUI
-	stopCh    chan struct{}
+	hubMgr      *HubManager
+	deviceMgr   *DeviceManager
+	gui         *GUI
+	stopCh      chan struct{}
+	initialScan bool
 }
 
 // NewSensorMonitor создает новый монитор
@@ -24,10 +25,11 @@ func NewSensorMonitor(hubMgr *HubManager, deviceMgr *DeviceManager, gui *GUI) *S
 	}
 }
 
-// Start запускает мониторинг
+// Start запускает мониторинг - делаем однократный опрос при подключении
 func (sm *SensorMonitor) Start() {
-	go sm.monitorLoop()
-	log.Println("Мониторинг устройств запущен")
+	sm.initialScan = true
+	go sm.initialDeviceScan()
+	log.Println("Мониторинг устройств запущен (однократный опрос при подключении)")
 }
 
 // Stop останавливает мониторинг
@@ -38,9 +40,80 @@ func (sm *SensorMonitor) Stop() {
 	log.Println("Мониторинг устройств остановлен")
 }
 
-// monitorLoop основной цикл мониторинга
+// initialDeviceScan выполняет однократный опрос всех устройств
+func (sm *SensorMonitor) initialDeviceScan() {
+	if !sm.hubMgr.IsConnected() {
+		return
+	}
+
+	log.Println("Выполняем начальный опрос устройств...")
+
+	// Опрашиваем батарею
+	sm.updateBatteryLevel()
+
+	// Опрашиваем основные порты
+	ports := []byte{1, 2, 6}
+	for _, port := range ports {
+		sm.updatePortInfo(port)
+	}
+
+	sm.initialScan = false
+	log.Println("Начальный опрос устройств завершен")
+}
+
+// updatePortInfo обновляет информацию о конкретном порте
+func (sm *SensorMonitor) updatePortInfo(portID byte) {
+	sm.hubMgr.connectionMutex.Lock()
+	defer sm.hubMgr.connectionMutex.Unlock()
+
+	if sm.hubMgr.hubInfo == nil {
+		return
+	}
+
+	// Ищем или создаем информацию о порте
+	var portInfo *PortInfo
+	for i := range sm.hubMgr.hubInfo.Ports {
+		if sm.hubMgr.hubInfo.Ports[i].PortID == portID {
+			portInfo = &sm.hubMgr.hubInfo.Ports[i]
+			break
+		}
+	}
+
+	if portInfo == nil {
+		// Добавляем новый порт
+		portInfo = &PortInfo{
+			PortID:      portID,
+			DeviceType:  sm.getDeviceTypeForPort(portID),
+			DeviceName:  sm.getDeviceNameForPort(portID),
+			IsConnected: true,
+			LastValue:   []byte{0},
+			LastUpdate:  time.Now(),
+		}
+		sm.hubMgr.hubInfo.Ports = append(sm.hubMgr.hubInfo.Ports, *portInfo)
+	} else {
+		// Обновляем существующий
+		portInfo.DeviceType = sm.getDeviceTypeForPort(portID)
+		portInfo.DeviceName = sm.getDeviceNameForPort(portID)
+		portInfo.IsConnected = true
+		portInfo.LastUpdate = time.Now()
+
+		// Устанавливаем начальные значения
+		switch portInfo.DeviceType {
+		case 0x01: // Мотор
+			portInfo.LastValue = []byte{0} // Мощность 0%
+		case 0x17: // RGB светодиод
+			portInfo.LastValue = []byte{0, 0, 0} // Выключен
+		}
+	}
+
+	// Синхронизируем с DeviceManager
+	if sm.deviceMgr != nil {
+		sm.deviceMgr.UpdateDevices([]PortInfo{*portInfo})
+	}
+}
+
 func (sm *SensorMonitor) monitorLoop() {
-	ticker := time.NewTicker(500 * time.Millisecond) // Опрос каждые 500мс
+	ticker := time.NewTicker(30 * time.Second) // Только для периодического опроса батареи
 	defer ticker.Stop()
 
 	for {
@@ -50,8 +123,6 @@ func (sm *SensorMonitor) monitorLoop() {
 		case <-ticker.C:
 			if sm.hubMgr.IsConnected() {
 				sm.updateBatteryLevel()
-				sm.updatePortStatus()
-				sm.updateSensorValues()
 			}
 		}
 	}
@@ -74,51 +145,54 @@ func (sm *SensorMonitor) updateBatteryLevel() {
 	}
 }
 
-// updatePortStatus обновляет статус портов
+/* // updatePortStatus обновляет статус портов и синхронизирует с DeviceManager
 func (sm *SensorMonitor) updatePortStatus() {
-	// Обновляем информацию о подключенных устройствах
-	sm.hubMgr.connectionMutex.Lock()
-	defer sm.hubMgr.connectionMutex.Unlock()
-
-	if sm.hubMgr.hubInfo == nil {
+	if sm.deviceMgr == nil {
 		return
 	}
 
-	// Обновляем информацию о портах
-	// Порты 1, 2, 6 (встроенный светодиод)
-	ports := []byte{1, 2, 6}
+	// Получаем текущие порты из HubManager
+	sm.hubMgr.connectionMutex.Lock()
+	hubInfo := sm.hubMgr.hubInfo
+	sm.hubMgr.connectionMutex.Unlock()
 
-	for _, port := range ports {
-		// Проверяем, есть ли информация о порте
-		found := false
-		for i, portInfo := range sm.hubMgr.hubInfo.Ports {
-			if portInfo.PortID == port {
-				found = true
-				// Обновляем статус (в реальном приложении - чтение из BLE)
-				sm.hubMgr.hubInfo.Ports[i].LastUpdate = time.Now()
+	if hubInfo == nil {
+		return
+	}
+
+	// Создаем срез PortInfo для обновления DeviceManager
+	var portInfos []PortInfo
+
+	// Проверяем стандартные порты
+	ports := []byte{1, 2, 6}
+	for _, portID := range ports {
+		portInfo := PortInfo{
+			PortID:      portID,
+			DeviceType:  sm.getDeviceTypeForPort(portID),
+			DeviceName:  sm.getDeviceNameForPort(portID),
+			IsConnected: true,
+			LastValue:   []byte{0},
+			LastUpdate:  time.Now(),
+		}
+
+		// Проверяем, есть ли данные в hubInfo
+		for _, existingPort := range hubInfo.Ports {
+			if existingPort.PortID == portID && existingPort.IsConnected {
+				portInfo = existingPort
 				break
 			}
 		}
 
-		if !found {
-			// Добавляем новый порт
-			portInfo := PortInfo{
-				PortID:      port,
-				DeviceType:  sm.getDeviceTypeForPort(port),
-				DeviceName:  sm.getDeviceNameForPort(port),
-				IsConnected: true,
-				LastValue:   []byte{0},
-				Mode:        0,
-				LastUpdate:  time.Now(), // ДОБАВЛЕНО
-			}
-			sm.hubMgr.hubInfo.Ports = append(sm.hubMgr.hubInfo.Ports, portInfo)
-		}
+		portInfos = append(portInfos, portInfo)
 	}
+
+	// Обновляем устройства в DeviceManager
+	sm.deviceMgr.UpdateDevices(portInfos)
 }
 
 // updateSensorValues обновляет значения датчиков
 func (sm *SensorMonitor) updateSensorValues() {
-	// Симуляция чтения значений датчиков
+	// Обновляем данные в HubManager
 	sm.hubMgr.connectionMutex.Lock()
 	defer sm.hubMgr.connectionMutex.Unlock()
 
@@ -134,25 +208,25 @@ func (sm *SensorMonitor) updateSensorValues() {
 		switch port.DeviceType {
 		case 0x01: // Мотор
 			// Значение мощности (0-100%)
-			port.LastValue = []byte{byte(50 + i*10)} // Тестовое значение
-
-		case 0x02: // Датчик наклона
-			// Угол наклона (0-90 градусов)
-			port.LastValue = []byte{byte(20 + i*5)} // Тестовое значение
+			port.LastValue = []byte{byte(50)} // Фиксированное тестовое значение
 
 		case 0x17: // RGB светодиод
-			// Цвет (R,G,B)
-			port.LastValue = []byte{255, 100, 50} // Тестовое значение
+			// Цвет (R,G,B) - начальное значение
+			if len(port.LastValue) == 0 {
+				port.LastValue = []byte{0, 0, 0} // Выключен
+			}
+
+		case 0x02: // Датчик наклона
+			port.LastValue = []byte{byte(0)} // Нет наклона
 
 		case 0x23: // Датчик расстояния
-			// Расстояние (0-10 см)
-			port.LastValue = []byte{byte(5 + i)} // Тестовое значение
+			port.LastValue = []byte{byte(10)} // 10 см
 		}
 
 		port.LastUpdate = time.Now()
 	}
 }
-
+*/
 // getDeviceTypeForPort возвращает тип устройства для порта
 func (sm *SensorMonitor) getDeviceTypeForPort(port byte) byte {
 	switch port {
@@ -223,4 +297,29 @@ func (sm *SensorMonitor) formatSensorValue(port PortInfo) string {
 	default:
 		return fmt.Sprintf("Значение: %v", port.LastValue)
 	}
+}
+
+// UpdateDevices уведомляет об обновлении устройств (для вызова извне)
+func (sm *SensorMonitor) UpdateDevices() {
+	sm.hubMgr.connectionMutex.Lock()
+	defer sm.hubMgr.connectionMutex.Unlock()
+
+	if sm.hubMgr.hubInfo == nil || sm.deviceMgr == nil {
+		return
+	}
+
+	// Собираем актуальные порты
+	var portInfos []PortInfo
+	ports := []byte{1, 2, 6}
+
+	for _, portID := range ports {
+		for _, port := range sm.hubMgr.hubInfo.Ports {
+			if port.PortID == portID && port.IsConnected {
+				portInfos = append(portInfos, port)
+				break
+			}
+		}
+	}
+
+	sm.deviceMgr.UpdateDevices(portInfos)
 }

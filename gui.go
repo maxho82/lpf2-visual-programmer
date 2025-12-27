@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"strconv" // Добавляем для hexStringToBytes
+	"strings" // Добавляем для hexStringToBytes
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -35,14 +37,22 @@ type GUI struct {
 	//programScroll   *container.Scroll // ДОБАВЛЕНО - прямой доступ к Scroll
 	programPanel *container.Scroll
 	blocksPanel  fyne.CanvasObject
+
+	// Для обновления устройств
+	deviceUpdateRequest     chan bool
+	deviceUpdateTicker      *time.Ticker
+	dynamicDevicesContainer *fyne.Container
+	portWidgets             map[byte]*widget.Label // Для хранения меток статуса портов
 }
 
 // NewGUI создает новый GUI
 func NewGUI(window fyne.Window, hubMgr *HubManager, programMgr *ProgramManager) *GUI {
 	gui := &GUI{
-		window:     window,
-		hubMgr:     hubMgr,
-		programMgr: programMgr,
+		window:              window,
+		hubMgr:              hubMgr,
+		programMgr:          programMgr,
+		deviceUpdateRequest: make(chan bool, 10), // Буферизованный канал
+		portWidgets:         make(map[byte]*widget.Label),
 	}
 
 	return gui
@@ -83,10 +93,10 @@ func (gui *GUI) BuildUI() fyne.CanvasObject {
 
 	// Разделители
 	leftSplit := container.NewHSplit(gui.devicePanel, gui.programPanel)
-	leftSplit.SetOffset(0.2)
+	leftSplit.SetOffset(0.25)
 
 	rightSplit := container.NewHSplit(leftSplit, gui.propertiesPanel)
-	rightSplit.SetOffset(0.8)
+	rightSplit.SetOffset(0.75)
 
 	// Основной макет
 	mainContent := container.NewBorder(
@@ -102,8 +112,89 @@ func (gui *GUI) BuildUI() fyne.CanvasObject {
 		nil, nil, gui.blocksPanel, nil, mainContent,
 	)
 
+	// Запускаем обработчик обновлений устройств
+	go gui.deviceUpdateHandler()
+
+	// Настраиваем callback в DeviceManager
+	if gui.programMgr != nil && gui.programMgr.deviceMgr != nil {
+		gui.programMgr.deviceMgr.SetDeviceChangedCallback(func(portID byte, device *Device) {
+			// Отправляем запрос на обновление GUI
+			select {
+			case gui.deviceUpdateRequest <- true:
+			default:
+				// Канал полон, пропускаем
+			}
+		})
+	}
+
 	return fullLayout
 }
+
+// deviceUpdateHandler обрабатывает запросы на обновление устройств
+func (gui *GUI) deviceUpdateHandler() {
+	// Запускаем тикер для периодического обновления батареи (раз в 10 секунд)
+	batteryTicker := time.NewTicker(10 * time.Second)
+	defer batteryTicker.Stop()
+
+	for {
+		select {
+		case <-gui.deviceUpdateRequest:
+			// Обновляем устройства в GUI
+			gui.updateDeviceDisplay()
+
+		case <-batteryTicker.C:
+			// Периодически обновляем только батарею
+			if gui.hubMgr != nil && gui.hubMgr.IsConnected() {
+				// Обновление батареи происходит автоматически в createBatteryWidget
+				// Ничего дополнительно не делаем
+			}
+
+		case <-time.After(100 * time.Millisecond):
+			// Неблокирующий цикл
+		}
+	}
+}
+
+// updateDeviceDisplay обновляет отображение устройств
+func (gui *GUI) updateDeviceDisplay() {
+	fyne.Do(func() {
+		// Обновляем динамические устройства
+		if gui.dynamicDevicesContainer != nil {
+			gui.dynamicDevicesContainer.Objects = nil
+
+			if gui.programMgr != nil && gui.programMgr.deviceMgr != nil {
+				devices := gui.programMgr.deviceMgr.GetDevices()
+
+				if len(devices) == 0 {
+					noDevicesLabel := widget.NewLabel("Нет подключенных устройств")
+					noDevicesLabel.TextStyle.Italic = true
+					gui.dynamicDevicesContainer.Add(noDevicesLabel)
+				} else {
+					for _, device := range devices {
+						if device.IsConnected {
+							deviceCard := gui.createDeviceCard(device)
+							gui.dynamicDevicesContainer.Add(deviceCard)
+						}
+					}
+				}
+			} else {
+				noManagerLabel := widget.NewLabel("Менеджер устройств не инициализирован")
+				noManagerLabel.TextStyle.Italic = true
+				gui.dynamicDevicesContainer.Add(noManagerLabel)
+			}
+
+			gui.dynamicDevicesContainer.Refresh()
+		}
+	})
+}
+
+// updateBatteryDisplay обновляет только отображение батареи
+// (этот метод больше не нужен, т.к. батарея обновляется автоматически)
+// Если хотим оставить, исправляем:
+/* func (gui *GUI) updateBatteryDisplay() {
+	// Этот метод теперь пустой, т.к. батарея обновляется автоматически
+	// в createBatteryWidget через горутину
+} */
 
 // createToolbar создает панель инструментов
 func (gui *GUI) createToolbar() *fyne.Container {
@@ -144,92 +235,11 @@ func (gui *GUI) createToolbar() *fyne.Container {
 	})
 	gui.clearButton.Importance = widget.MediumImportance
 
-	// Кнопка создания программы мигания
-	blinkButton := widget.NewButtonWithIcon("Создать мигание", theme.RadioButtonIcon(), func() {
-		gui.createBlinkProgram()
-	})
-
-	testLEDButton := widget.NewButtonWithIcon("Тест светодиод", theme.RadioButtonIcon(), func() {
-		if !gui.hubMgr.IsConnected() {
-			dialog.ShowError(fmt.Errorf("не подключено к хабу"), gui.window)
-			return
-		}
-
-		// Включить красный светодиод
-		err := gui.programMgr.deviceMgr.SetLEDColor(6, 255, 0, 0)
-		if err != nil {
-			dialog.ShowError(err, gui.window)
-		} else {
-			dialog.ShowInformation("Успех", "Светодиод включен (красный)", gui.window)
-
-			// Через 1 секунду выключить
-			go func() {
-				time.Sleep(1 * time.Second)
-				fyne.Do(func() {
-					gui.programMgr.deviceMgr.SetLEDColor(6, 0, 0, 0)
-				})
-			}()
-		}
-	})
-
-	// В createToolbar добавьте:
-	testWedoProtocolButton := widget.NewButtonWithIcon("Тест WeDo протокол", theme.MediaPlayIcon(), func() {
-		if !gui.hubMgr.IsConnected() {
-			dialog.ShowError(fmt.Errorf("не подключено к хабу"), gui.window)
-			return
-		}
-
-		// Тест 1: RGB режим (дискретный) - красный
-		go func() {
-			err := gui.programMgr.deviceMgr.SetLEDColor(6, 255, 0, 0)
-			fyne.Do(func() {
-				if err != nil {
-					dialog.ShowError(fmt.Errorf("RGB ошибка: %v", err), gui.window)
-				} else {
-					dialog.ShowInformation("Успех", "RGB красный отправлен", gui.window)
-				}
-			})
-
-			time.Sleep(2 * time.Second)
-
-			// Тест 2: Выключить
-			err = gui.programMgr.deviceMgr.SetLEDColor(6, 0, 0, 0)
-			fyne.Do(func() {
-				if err != nil {
-					dialog.ShowError(fmt.Errorf("Выкл ошибка: %v", err), gui.window)
-				}
-			})
-
-			time.Sleep(1 * time.Second)
-
-			// Тест 3: Абсолютный режим (индекс цвета)
-			err = gui.programMgr.deviceMgr.SetLEDColorIndex(6, 0x01) // Розовый
-			fyne.Do(func() {
-				if err != nil {
-					dialog.ShowError(fmt.Errorf("Индекс ошибка: %v", err), gui.window)
-				} else {
-					dialog.ShowInformation("Успех", "Цвет по индексу отправлен", gui.window)
-				}
-			})
-		}()
-	})
-
-	// Кнопка теста протокола
 	testProtocolButton := widget.NewButtonWithIcon("Тест протокола", theme.VisibilityIcon(), func() {
-		if !gui.hubMgr.IsConnected() {
-			dialog.ShowError(fmt.Errorf("не подключено к хабу"), gui.window)
-			return
-		}
-
-		// Запускаем тест в отдельной горутине
-		go func() {
-			TestLPF2Protocol(gui.hubMgr)
-		}()
-
-		dialog.ShowInformation("Тест запущен", "Проверяем протокол LPF2. Смотрите логи в консоли.", gui.window)
+		gui.showProtocolTestDialog()
 	})
 
-	// Метка статуса
+	// Метка статусаЫ
 	gui.statusLabel = widget.NewLabel("Не подключено")
 	gui.statusLabel.Alignment = fyne.TextAlignCenter
 	gui.statusLabel.TextStyle = fyne.TextStyle{Bold: true}
@@ -242,10 +252,7 @@ func (gui *GUI) createToolbar() *fyne.Container {
 		gui.stopButton,
 		widget.NewSeparator(),
 		gui.clearButton,
-		blinkButton,
-		testLEDButton,          // ДОБАВЛЕНО
-		testWedoProtocolButton, // Добавляем эту кнопку
-		testProtocolButton,     // Добавляем эту кнопку
+		testProtocolButton, // Добавляем эту кнопку
 		layout.NewSpacer(),
 		gui.statusLabel,
 		layout.NewSpacer(),
@@ -261,40 +268,123 @@ func (gui *GUI) createDevicePanel() fyne.CanvasObject {
 	title.TextSize = 16
 	title.TextStyle.Bold = true
 
-	// Контейнер для устройств
-	devicesContainer := container.NewVBox(
+	// Основной контейнер
+	mainContainer := container.NewVBox(
 		container.NewCenter(title),
 		widget.NewSeparator(),
 	)
 
+	// --- Динамические устройства из DeviceManager ---
+	devicesTitle := widget.NewLabel("Подключенные устройства:")
+	devicesTitle.TextStyle.Bold = true
+	mainContainer.Add(devicesTitle)
+
+	// Контейнер для динамических устройств
+	gui.dynamicDevicesContainer = container.NewVBox()
+	mainContainer.Add(container.NewVScroll(gui.dynamicDevicesContainer))
+	mainContainer.Add(widget.NewSeparator())
+
+	// --- Фиксированные порты (для удобства) ---
+	portsTitle := widget.NewLabel("Порты хаба:")
+	portsTitle.TextStyle.Bold = true
+	mainContainer.Add(portsTitle)
+
 	// Порт 1 - Мотор A
 	port1 := gui.createPortWidget(1, "Порт A (Мотор)")
-	devicesContainer.Add(port1)
+	mainContainer.Add(port1)
 
 	// Порт 2 - Мотор B
 	port2 := gui.createPortWidget(2, "Порт B (Мотор)")
-	devicesContainer.Add(port2)
+	mainContainer.Add(port2)
 
 	// Порт 6 - Светодиод
 	port6 := gui.createPortWidget(6, "Встроенный светодиод")
-	devicesContainer.Add(port6)
+	mainContainer.Add(port6)
 
-	// Датчики
-	sensorsWidget := gui.createSensorsWidget()
-	devicesContainer.Add(sensorsWidget)
+	mainContainer.Add(widget.NewSeparator())
 
-	// Батарея
+	// --- Батарея ---
 	batteryWidget := gui.createBatteryWidget()
-	devicesContainer.Add(batteryWidget)
+	mainContainer.Add(batteryWidget)
 
-	// Информация о хабе
+	// --- Информация о хабе ---
 	hubInfoWidget := gui.createHubInfoWidget()
-	devicesContainer.Add(hubInfoWidget)
+	mainContainer.Add(hubInfoWidget)
 
-	return container.NewVScroll(container.NewPadded(devicesContainer))
+	return container.NewVScroll(container.NewPadded(mainContainer))
 }
 
-// createPortWidget создает виджет порта с динамическими данными
+// createDeviceCard создает карточку устройства
+func (gui *GUI) createDeviceCard(device Device) fyne.CanvasObject {
+	// Определяем иконку по типу устройства
+	var iconRes fyne.Resource
+	switch device.DeviceType {
+	case 0x01: // Мотор
+		iconRes = theme.StorageIcon()
+	case 0x17: // RGB светодиод
+		iconRes = theme.VisibilityIcon()
+	case 0x02: // Датчик наклона
+		iconRes = theme.ViewRefreshIcon()
+	default:
+		iconRes = theme.ComputerIcon()
+	}
+
+	// Статус подключения
+	statusText := "✓ Подключено"
+	statusColor := color.NRGBA{R: 0, G: 200, B: 0, A: 255}
+	if !device.IsConnected {
+		statusText = "✗ Отключено"
+		statusColor = color.NRGBA{R: 200, G: 0, B: 0, A: 255}
+	}
+
+	statusLabel := canvas.NewText(statusText, statusColor)
+	statusLabel.TextSize = 11
+
+	// Основная информация
+	mainInfo := container.NewHBox(
+		widget.NewIcon(iconRes),
+		widget.NewLabel(fmt.Sprintf("Порт %d: %s", device.PortID, device.Name)),
+		layout.NewSpacer(),
+		container.NewCenter(statusLabel),
+	)
+
+	// Дополнительные свойства
+	propsContainer := container.NewVBox()
+
+	// Показываем последние значения или свойства
+	if device.LastValue != nil {
+		valLabel := widget.NewLabel(fmt.Sprintf("Значение: %v", device.LastValue))
+		valLabel.TextStyle.Italic = true
+		propsContainer.Add(valLabel)
+	}
+
+	// Если есть свойства, показываем их
+	if len(device.Properties) > 0 {
+		for key, value := range device.Properties {
+			propLabel := widget.NewLabel(fmt.Sprintf("  %s: %v", key, value))
+			//propLabel.TextSize = 10
+			propsContainer.Add(propLabel)
+		}
+	}
+
+	// Время последнего обновления
+	if !device.LastUpdate.IsZero() {
+		updateLabel := widget.NewLabel(fmt.Sprintf("Обновлено: %s",
+			device.LastUpdate.Format("15:04:05")))
+		//updateLabel.TextSize = 9
+		updateLabel.TextStyle.Italic = true
+		propsContainer.Add(updateLabel)
+	}
+
+	return container.NewVBox(
+		mainInfo,
+		widget.NewSeparator(),
+		propsContainer,
+		widget.NewSeparator(),
+	)
+}
+
+/* // createPortWidget создает виджет порта с динамическими данными
 func (gui *GUI) createPortWidget(portID byte, label string) fyne.CanvasObject {
 	// Иконка порта
 	icon := widget.NewIcon(theme.StorageIcon())
@@ -357,9 +447,77 @@ func (gui *GUI) createPortWidget(portID byte, label string) fyne.CanvasObject {
 	}()
 
 	return portContainer
+} */
+
+// createPortWidget создает виджет порта (только статическая информация)
+func (gui *GUI) createPortWidget(portID byte, label string) fyne.CanvasObject {
+	// Иконка порта
+	icon := widget.NewIcon(theme.StorageIcon())
+
+	// Метка порта
+	portLabel := widget.NewLabel(label)
+	portLabel.Alignment = fyne.TextAlignCenter
+	portLabel.TextStyle.Bold = true
+
+	// Метка статуса
+	statusLabel := widget.NewLabel("Готов к подключению")
+	statusLabel.Alignment = fyne.TextAlignCenter
+
+	// Сохраняем ссылку на виджет статуса
+	gui.portWidgets[portID] = statusLabel
+
+	// Контейнер порта
+	portContainer := container.NewVBox(
+		container.NewCenter(icon),
+		portLabel,
+		statusLabel,
+		widget.NewSeparator(),
+	)
+
+	// Запускаем обновление статуса только при изменениях
+	go func(portID byte, statusLabel *widget.Label, icon *widget.Icon) {
+		// Инициализируем начальное состояние
+		var lastState string = ""
+
+		for {
+			time.Sleep(500 * time.Millisecond) // Проверяем раз в 500 мс
+
+			currentState := ""
+			if gui.programMgr != nil && gui.programMgr.deviceMgr != nil {
+				if device, exists := gui.programMgr.deviceMgr.GetDevice(portID); exists {
+					if device.IsConnected {
+						currentState = fmt.Sprintf("✓ %s", device.Name)
+					} else {
+						currentState = "Не подключено"
+					}
+				}
+			}
+
+			// Обновляем только если состояние изменилось
+			if currentState != lastState {
+				lastState = currentState
+
+				fyne.Do(func() {
+					if currentState != "" {
+						statusLabel.SetText(currentState)
+						statusLabel.TextStyle.Bold = true
+						icon.SetResource(theme.ConfirmIcon())
+					} else {
+						statusLabel.SetText("Готов к подключению")
+						statusLabel.TextStyle.Bold = false
+						icon.SetResource(theme.StorageIcon())
+					}
+					statusLabel.Refresh()
+					icon.Refresh()
+				})
+			}
+		}
+	}(portID, statusLabel, icon)
+
+	return portContainer
 }
 
-// formatPortValue форматирует значение порта
+/* // formatPortValue форматирует значение порта
 func formatPortValue(port PortInfo) string {
 	if len(port.LastValue) == 0 {
 		return "Нет данных"
@@ -378,6 +536,12 @@ func formatPortValue(port PortInfo) string {
 	default:
 		return fmt.Sprintf("Значение: %v", port.LastValue)
 	}
+}
+*/
+// updateHubInfoDisplay обновляет отображение информации о хабе
+func (gui *GUI) updateHubInfoDisplay() {
+	// Этот метод может использоваться для принудительного обновления
+	// информации о хабе, если потребуется
 }
 
 // createBatteryWidget создает виджет батареи
@@ -402,21 +566,23 @@ func (gui *GUI) createBatteryWidget() fyne.CanvasObject {
 		widget.NewSeparator(),
 	)
 
-	// Обновление состояния батареи
+	// Обновление состояния батареи (раз в 10 секунд)
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
-			hubInfo := gui.hubMgr.GetHubInfo()
-			batteryLevel := hubInfo.Battery
+			if gui.hubMgr != nil && gui.hubMgr.IsConnected() {
+				hubInfo := gui.hubMgr.GetHubInfo()
+				batteryLevel := hubInfo.Battery
 
-			fyne.Do(func() {
-				progress.SetValue(float64(batteryLevel) / 100)
-				percentLabel.SetText(fmt.Sprintf("%d%%", batteryLevel))
-				progress.Refresh()
-				percentLabel.Refresh()
-			})
+				fyne.Do(func() {
+					progress.SetValue(float64(batteryLevel) / 100)
+					percentLabel.SetText(fmt.Sprintf("%d%%", batteryLevel))
+					progress.Refresh()
+					percentLabel.Refresh()
+				})
+			}
 		}
 	}()
 
@@ -561,74 +727,6 @@ func (gui *GUI) addBlockToCanvas(block *ProgramBlock) {
 	}
 }
 
-// createBlinkProgram создает программу мигания светодиода
-func (gui *GUI) createBlinkProgram() {
-	// Очищаем программу
-	gui.programMgr.ClearProgram()
-
-	// Очищаем холст
-	gui.updateProgramCanvas()
-
-	// Создаем блоки для мигания
-	blocks := []struct {
-		blockType BlockType
-		x, y      float64
-		config    func(*ProgramBlock)
-	}{
-		{BlockTypeStart, 200, 100, nil},
-		{BlockTypeLoop, 200, 200, func(b *ProgramBlock) {
-			b.Parameters["forever"] = true
-		}},
-		{BlockTypeLED, 200, 300, func(b *ProgramBlock) {
-			b.Parameters["port"] = byte(6)
-			b.Parameters["red"] = byte(255)
-			b.Parameters["green"] = byte(0)
-			b.Parameters["blue"] = byte(0)
-		}},
-		{BlockTypeWait, 200, 400, func(b *ProgramBlock) {
-			b.Parameters["duration"] = 0.5
-		}},
-		{BlockTypeLED, 200, 500, func(b *ProgramBlock) {
-			b.Parameters["port"] = byte(6)
-			b.Parameters["red"] = byte(0)
-			b.Parameters["green"] = byte(0)
-			b.Parameters["blue"] = byte(0)
-		}},
-		{BlockTypeWait, 200, 600, func(b *ProgramBlock) {
-			b.Parameters["duration"] = 0.5
-		}},
-	}
-
-	// Добавляем и настраиваем блоки
-	var prevBlock *ProgramBlock
-	for _, item := range blocks {
-		block := gui.programMgr.AddBlock(item.blockType, item.x, item.y)
-
-		// Применяем конфигурацию
-		if item.config != nil {
-			item.config(block)
-		}
-
-		// Создаем связи между блоками
-		if prevBlock != nil {
-			prevBlock.NextBlockID = block.ID
-		}
-		prevBlock = block
-
-		// Добавляем на холст
-		gui.addBlockToCanvas(block)
-	}
-
-	dialog.ShowInformation("Готово",
-		"Программа мигания светодиода создана!\n\n"+
-			"Действия:\n"+
-			"1. Подключитесь к хабу\n"+
-			"2. Нажмите 'Запуск'\n"+
-			"3. Светодиод на хабе начнет мигать\n"+
-			"4. Нажмите 'Стоп' для остановки",
-		gui.window)
-}
-
 // createStatusBar создает строку состояния
 func (gui *GUI) createStatusBar() *fyne.Container {
 	statusText := widget.NewLabel("Готово к работе")
@@ -703,6 +801,25 @@ func (gui *GUI) connectToHub(address string) {
 				dialog.ShowError(err, gui.window)
 			} else {
 				gui.updateConnectionStatus()
+
+				// Запускаем начальный опрос устройств
+				if gui.hubMgr.GetSensorMonitor() != nil {
+					go func() {
+						time.Sleep(500 * time.Millisecond) // Даем время на установку соединения
+						sensorMonitor := gui.hubMgr.GetSensorMonitor()
+						if sensorMonitor != nil {
+							// Вызываем начальный опрос
+							sensorMonitor.UpdateDevices()
+
+							// Запрашиваем обновление GUI
+							select {
+							case gui.deviceUpdateRequest <- true:
+							default:
+							}
+						}
+					}()
+				}
+
 				dialog.ShowInformation("Успешно", "Подключение установлено!", gui.window)
 			}
 		})
@@ -750,72 +867,7 @@ func (gui *GUI) updateProgramCanvas() {
 	}
 }
 
-// createSensorsWidget создает виджет для отображения всех датчиков
-func (gui *GUI) createSensorsWidget() fyne.CanvasObject {
-	// Заголовок
-	title := canvas.NewText("Датчики", color.NRGBA{R: 240, G: 240, B: 240, A: 255})
-	title.TextSize = 14
-	title.TextStyle.Bold = true
-
-	// Таблица датчиков
-	sensorTable := widget.NewTable(
-		func() (int, int) {
-			return 5, 2 // 5 строк, 2 колонки
-		},
-		func() fyne.CanvasObject {
-			return widget.NewLabel("Данные")
-		},
-		func(id widget.TableCellID, obj fyne.CanvasObject) {
-			label := obj.(*widget.Label)
-
-			// Определяем строки
-			sensorNames := []string{
-				"Батарея:",
-				"Мотор A:",
-				"Мотор B:",
-				"Светодиод:",
-				"Температура:",
-			}
-
-			if id.Row < len(sensorNames) {
-				if id.Col == 0 {
-					label.SetText(sensorNames[id.Row])
-					label.TextStyle.Bold = true
-				} else {
-					// Динамические значения
-					value := gui.getSensorValue(id.Row)
-					label.SetText(value)
-				}
-			}
-		},
-	)
-
-	sensorTable.SetColumnWidth(0, 100)
-	sensorTable.SetColumnWidth(1, 100)
-
-	// Контейнер
-	sensorContainer := container.NewVBox(
-		container.NewCenter(title),
-		sensorTable,
-		widget.NewSeparator(),
-	)
-
-	// Обновление таблицы
-	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			fyne.Do(func() {
-				sensorTable.Refresh()
-			})
-		}
-	}()
-
-	return sensorContainer
-}
-
-// getSensorValue возвращает значение для конкретного датчика
+/* // getSensorValue возвращает значение для конкретного датчика
 func (gui *GUI) getSensorValue(sensorID int) string {
 	if gui.hubMgr == nil || gui.hubMgr.GetSensorMonitor() == nil {
 		return "--"
@@ -844,4 +896,98 @@ func (gui *GUI) getSensorValue(sensorID int) string {
 	default:
 		return "--"
 	}
+} */
+
+// showProtocolTestDialog показывает диалог тестирования протокола
+func (gui *GUI) showProtocolTestDialog() {
+	// Поле для UUID
+	uuidEntry := widget.NewEntry()
+	uuidEntry.SetPlaceHolder("UUID характеристики (например: 00001565-1212-efde-1523-785feabcd123)")
+	uuidEntry.SetText("00001565-1212-efde-1523-785feabcd123") // Значение по умолчанию
+
+	// Поле для данных (в hex)
+	dataEntry := widget.NewEntry()
+	dataEntry.SetPlaceHolder("Данные в hex (например: 08040603FF000000)")
+	dataEntry.SetText("08040603FF000000") // Пример: включить красный светодиод
+
+	// Поле для результата
+	resultLabel := widget.NewLabel("")
+	resultLabel.Wrapping = fyne.TextWrapWord
+
+	// Кнопка отправки
+	sendButton := widget.NewButton("Отправить", func() {
+		uuid := uuidEntry.Text
+		hexData := dataEntry.Text
+
+		if uuid == "" || hexData == "" {
+			resultLabel.SetText("Ошибка: заполните оба поля")
+			return
+		}
+
+		// Преобразуем hex строку в байты
+		data, err := hexStringToBytes(hexData)
+		if err != nil {
+			resultLabel.SetText(fmt.Sprintf("Ошибка преобразования данных: %v", err))
+			return
+		}
+
+		// Отправляем данные
+		err = gui.hubMgr.WriteCharacteristic(uuid, data)
+		if err != nil {
+			resultLabel.SetText(fmt.Sprintf("Ошибка отправки: %v", err))
+		} else {
+			resultLabel.SetText(fmt.Sprintf("Успешно отправлено %d байт:\n%v", len(data), data))
+		}
+	})
+
+	// Кнопка примеров
+	examplesButton := widget.NewButton("Примеры", func() {
+		dialog.ShowCustom("Примеры команд", "Закрыть",
+			container.NewVBox(
+				widget.NewLabel("Часто используемые UUID:"),
+				widget.NewLabel("• 00001565-1212-efde-1523-785feabcd123 - Команды (Output)"),
+				widget.NewLabel("• 00001563-1212-efde-1523-785feabcd123 - Настройка (Input)"),
+				widget.NewSeparator(),
+				widget.NewLabel("Примеры данных:"),
+				widget.NewLabel("• 08040603FF000000 - Красный светодиод"),
+				widget.NewLabel("• 0604040101 - Мотор A (50%)"),
+				widget.NewLabel("• 0804060300000000 - Выключить светодиод"),
+			), gui.window)
+	})
+
+	// Основной контейнер диалога
+	content := container.NewVBox(
+		widget.NewLabel("Тест отправки данных по протоколу LPF2"),
+		widget.NewSeparator(),
+		widget.NewLabel("UUID характеристики:"),
+		uuidEntry,
+		widget.NewLabel("Данные (hex):"),
+		dataEntry,
+		container.NewHBox(sendButton, examplesButton),
+		widget.NewSeparator(),
+		resultLabel,
+	)
+
+	dialog.ShowCustom("Тест протокола LPF2", "Закрыть", content, gui.window)
+}
+
+// Функция для преобразования hex строки в байты
+func hexStringToBytes(hexStr string) ([]byte, error) {
+	// Убираем пробелы
+	hexStr = strings.ReplaceAll(hexStr, " ", "")
+
+	// Проверяем чётность длины
+	if len(hexStr)%2 != 0 {
+		return nil, fmt.Errorf("нечётная длина hex строки")
+	}
+
+	data := make([]byte, len(hexStr)/2)
+	for i := 0; i < len(hexStr); i += 2 {
+		b, err := strconv.ParseUint(hexStr[i:i+2], 16, 8)
+		if err != nil {
+			return nil, fmt.Errorf("неверный hex формат: %v", err)
+		}
+		data[i/2] = byte(b)
+	}
+	return data, nil
 }

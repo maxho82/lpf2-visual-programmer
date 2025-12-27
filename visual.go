@@ -263,7 +263,7 @@ func (pm *ProgramManager) CreateBlockWidget(block *ProgramBlock) fyne.CanvasObje
 	return draggable
 }
 
-// createBlockContent создает содержимое блока
+/* // createBlockContent создает содержимое блока
 func (pm *ProgramManager) createBlockContent(block *ProgramBlock) fyne.CanvasObject {
 	// Фон блока
 	bg := canvas.NewRectangle(block.Color)
@@ -288,7 +288,7 @@ func (pm *ProgramManager) createBlockContent(block *ProgramBlock) fyne.CanvasObj
 			container.NewCenter(desc),
 		),
 	)
-}
+} */
 
 // GetCanvas возвращает холст
 func (pm *ProgramManager) GetCanvas() fyne.CanvasObject {
