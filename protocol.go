@@ -102,3 +102,15 @@ func (p *LPF2Parser) EncodeMotorCommand(cmd MotorCommand) ([]byte, error) {
 	}
 	return data, nil
 }
+
+// EncodePortModeRequest кодирует запрос режима порта
+func (p *LPF2Parser) EncodePortModeRequest(portID byte, mode byte) ([]byte, error) {
+	// Формат: [0x01, 0x00, portID, mode]
+	return []byte{0x01, 0x00, portID, mode}, nil
+}
+
+// EncodePortValueRequest кодирует запрос значения порта
+func (p *LPF2Parser) EncodePortValueRequest(portID byte) ([]byte, error) {
+	// Формат: [0x00, 0x21, portID]
+	return []byte{0x00, 0x21, portID}, nil
+}

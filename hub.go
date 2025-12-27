@@ -19,8 +19,9 @@ type HubManager struct {
 	connectionMutex sync.RWMutex
 	hubInfo         *HubInfo
 	stopScan        context.CancelFunc
-	services        map[string]tinybluetooth.DeviceService        // ДОБАВЛЕНО
-	characteristics map[string]tinybluetooth.DeviceCharacteristic // ДОБАВЛЕНО
+	services        map[string]tinybluetooth.DeviceService
+	characteristics map[string]tinybluetooth.DeviceCharacteristic
+	sensorMonitor   *SensorMonitor // ДОБАВЛЕНО
 }
 
 // HubInfo содержит информацию о подключенном хабе
@@ -41,6 +42,7 @@ type PortInfo struct {
 	IsConnected bool
 	LastValue   []byte
 	Mode        byte
+	LastUpdate  time.Time // ДОБАВЛЕНО
 }
 
 // NewHubManager создает новый менеджер хаба
@@ -60,8 +62,8 @@ func NewHubManager() (*HubManager, error) {
 		hubInfo: &HubInfo{
 			Ports: make([]PortInfo, 6),
 		},
-		services:        make(map[string]tinybluetooth.DeviceService),        // ДОБАВЛЕНО
-		characteristics: make(map[string]tinybluetooth.DeviceCharacteristic), // ДОБАВЛЕНО
+		services:        make(map[string]tinybluetooth.DeviceService),
+		characteristics: make(map[string]tinybluetooth.DeviceCharacteristic),
 	}, nil
 }
 
@@ -133,8 +135,7 @@ func (hm *HubManager) ScanForHubs(timeout time.Duration) ([]HubInfo, error) {
 	return foundHubs, nil
 }
 
-// Connect подключается к выбранному хабу
-// Connect подключается к хабу - ДОБАВИМ ОБНАРУЖЕНИЕ СЛУЖБ
+// Connect подключается к хабу
 func (hm *HubManager) Connect(address string) error {
 	hm.connectionMutex.Lock()
 	defer hm.connectionMutex.Unlock()
@@ -186,7 +187,7 @@ func (hm *HubManager) Connect(address string) error {
 	hm.deviceAddress = address
 	hm.isConnected = true
 
-	// ОБНАРУЖИВАЕМ СЛУЖБЫ И ХАРАКТЕРИСТИКИ - ВАЖНО!
+	// ОБНАРУЖИВАЕМ СЛУЖБЫ И ХАРАКТЕРИСТИКИ
 	log.Println("Обнаружение служб и характеристик...")
 	services, err := device.DiscoverServices(nil)
 	if err != nil {
@@ -211,19 +212,16 @@ func (hm *HubManager) Connect(address string) error {
 			}
 		}
 	}
-	log.Println("Проверка наличия необходимых характеристик...")
 
-	// Проверяем наличие характеристики для записи команд
-	writeUUID := "00001565-1212-efde-1523-785feabcd123"
-	if _, hasWrite := hm.characteristics[writeUUID]; !hasWrite {
-		log.Printf("ВНИМАНИЕ: Характеристика для записи %s не найдена!", writeUUID)
-	} else {
-		log.Printf("Характеристика для записи %s найдена", writeUUID)
-	}
 	// Обновляем информацию о хабе
 	hm.hubInfo.Name = targetDevice.LocalName()
 	hm.hubInfo.Address = address
 	hm.hubInfo.LastUpdated = time.Now()
+
+	// Запускаем мониторинг сенсоров
+	if hm.sensorMonitor != nil {
+		hm.sensorMonitor.Start()
+	}
 
 	log.Printf("Успешно подключено к %s (%s)", address, hm.hubInfo.Name)
 	return nil
@@ -236,6 +234,12 @@ func (hm *HubManager) Disconnect() {
 
 	if hm.isConnected {
 		log.Println("Отключение от хаба...")
+
+		// Останавливаем мониторинг сенсоров
+		if hm.sensorMonitor != nil {
+			hm.sensorMonitor.Stop()
+		}
+
 		hm.device.Disconnect()
 		hm.isConnected = false
 		hm.hubInfo = &HubInfo{
@@ -263,6 +267,16 @@ func (hm *HubManager) GetHubInfo() HubInfo {
 	return *hm.hubInfo
 }
 
+// SetSensorMonitor устанавливает монитор сенсоров
+func (hm *HubManager) SetSensorMonitor(monitor *SensorMonitor) {
+	hm.sensorMonitor = monitor
+}
+
+// GetSensorMonitor возвращает монитор сенсоров
+func (hm *HubManager) GetSensorMonitor() *SensorMonitor {
+	return hm.sensorMonitor
+}
+
 // WriteCharacteristic записывает данные в характеристику
 func (hm *HubManager) WriteCharacteristic(uuid string, data []byte) error {
 	hm.connectionMutex.RLock()
@@ -271,10 +285,6 @@ func (hm *HubManager) WriteCharacteristic(uuid string, data []byte) error {
 	if !hm.IsConnected() {
 		return fmt.Errorf("не подключено к хабу")
 	}
-
-	log.Printf("Отправка данных в характеристику %s:", uuid)
-	log.Printf("Данные: %v", data)
-	log.Printf("HEX: %x", data)
 
 	// Находим характеристику по UUID
 	for _, service := range hm.services {
@@ -288,18 +298,12 @@ func (hm *HubManager) WriteCharacteristic(uuid string, data []byte) error {
 				// Отправляем данные
 				_, err := char.WriteWithoutResponse(data)
 				if err != nil {
-					log.Printf("Ошибка отправки данных: %v", err)
 					return fmt.Errorf("ошибка отправки данных: %v", err)
 				}
 				log.Printf("Данные успешно отправлены на хаб")
 				return nil
 			}
 		}
-	}
-
-	log.Printf("Характеристика %s не найдена. Доступные характеристики:", uuid)
-	for charUUID := range hm.characteristics {
-		log.Printf("  - %s", charUUID)
 	}
 
 	return fmt.Errorf("характеристика %s не найдена", uuid)

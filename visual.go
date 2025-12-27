@@ -79,21 +79,6 @@ func NewProgramManager(hubMgr *HubManager) *ProgramManager {
 	return pm
 }
 
-/* // createCanvas создает холст для программирования
-func (pm *ProgramManager) createCanvas() *container.Scroll {
-	// Создаем контейнер с прокруткой
-	content := container.NewWithoutLayout()
-
-	// Добавляем сетку для привязки
-	grid := canvas.NewRectangle(color.Transparent)
-	grid.StrokeColor = color.NRGBA{R: 240, G: 240, B: 240, A: 255}
-	grid.StrokeWidth = 1
-	grid.SetMinSize(fyne.NewSize(2000, 2000))
-	content.Add(grid)
-
-	return container.NewScroll(content)
-} */
-
 // createCanvas создает холст для программирования
 func (pm *ProgramManager) createCanvas() *container.Scroll {
 	// Создаем контейнер без компоновки (для ручного позиционирования)
@@ -237,22 +222,22 @@ func (pm *ProgramManager) updateCanvas() {
 	// Получаем контейнер холста
 	content := pm.canvas.Content.(*fyne.Container)
 
-	// Удаляем только виджеты блоков, оставляя фон (сетку)
-	var toRemove []fyne.CanvasObject
-	for _, obj := range content.Objects {
-		// Оставляем фон (не DraggableBlock)
-		if _, isBlock := obj.(*DraggableBlock); !isBlock {
-			continue
-		}
-		toRemove = append(toRemove, obj)
+	// Удаляем все старые виджеты блоков (кроме фона)
+	// Находим и сохраняем фон (первый элемент)
+	var background fyne.CanvasObject
+	if len(content.Objects) > 0 {
+		background = content.Objects[0]
 	}
 
-	// Удаляем старые блоки
-	for _, obj := range toRemove {
-		content.Remove(obj)
+	// Очищаем контейнер
+	content.RemoveAll()
+
+	// Добавляем фон обратно
+	if background != nil {
+		content.Add(background)
 	}
 
-	// Добавляем все блоки из списка
+	// Добавляем все блоки
 	for _, block := range pm.blocks {
 		blockWidget := pm.CreateBlockWidget(block)
 		content.Add(blockWidget)
@@ -261,20 +246,21 @@ func (pm *ProgramManager) updateCanvas() {
 	// Обновляем отображение
 	content.Refresh()
 	pm.canvas.Refresh()
-
-	log.Printf("Холст обновлен. Блоков: %d", len(pm.blocks))
 }
 
 // CreateBlockWidget создает виджет для блока
 func (pm *ProgramManager) CreateBlockWidget(block *ProgramBlock) fyne.CanvasObject {
-	// Создаем перетаскиваемый блок
-	blockWidget := NewDraggableBlock(block, pm)
+	// Создаем содержимое блока
+	//content := pm.createBlockContent(block)
+
+	// Обертываем в перетаскиваемый контейнер
+	draggable := NewDraggableBlock(block, pm)
 
 	// Устанавливаем размер и позицию
-	blockWidget.Resize(fyne.NewSize(float32(block.Width), float32(block.Height)))
-	blockWidget.Move(fyne.NewPos(float32(block.X), float32(block.Y)))
+	draggable.Resize(fyne.NewSize(float32(block.Width), float32(block.Height)))
+	draggable.Move(fyne.NewPos(float32(block.X), float32(block.Y)))
 
-	return blockWidget
+	return draggable
 }
 
 // createBlockContent создает содержимое блока
@@ -307,11 +293,6 @@ func (pm *ProgramManager) createBlockContent(block *ProgramBlock) fyne.CanvasObj
 // GetCanvas возвращает холст
 func (pm *ProgramManager) GetCanvas() fyne.CanvasObject {
 	return pm.canvas
-}
-
-// SetCanvas устанавливает холст
-func (pm *ProgramManager) SetCanvas(canvas *container.Scroll) {
-	pm.canvas = canvas
 }
 
 // RunProgram запускает выполнение программы
@@ -402,16 +383,4 @@ func (pm *ProgramManager) ShowBlockProperties(block *ProgramBlock) {
 	// TODO: Реализовать панель свойств блока
 	// Временно: просто устанавливаем выбранный блок
 	pm.selected = block
-}
-
-// SaveProgram сохраняет программу в файл
-func (pm *ProgramManager) SaveProgram(filename string) error {
-	// TODO: Реализовать сохранение программы
-	return nil
-}
-
-// LoadProgram загружает программу из файла
-func (pm *ProgramManager) LoadProgram(filename string) error {
-	// TODO: Реализовать загрузку программы
-	return nil
 }

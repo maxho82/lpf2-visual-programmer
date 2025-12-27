@@ -257,7 +257,7 @@ func (gui *GUI) createToolbar() *fyne.Container {
 // createDevicePanel создает панель устройств
 func (gui *GUI) createDevicePanel() fyne.CanvasObject {
 	// Заголовок
-	title := canvas.NewText("Устройства", color.NRGBA{R: 240, G: 240, B: 240, A: 255})
+	title := canvas.NewText("Устройства и датчики", color.NRGBA{R: 240, G: 240, B: 240, A: 255})
 	title.TextSize = 16
 	title.TextStyle.Bold = true
 
@@ -267,17 +267,21 @@ func (gui *GUI) createDevicePanel() fyne.CanvasObject {
 		widget.NewSeparator(),
 	)
 
-	// Порт 1
-	port1 := gui.createPortWidget(1, "Порт A")
+	// Порт 1 - Мотор A
+	port1 := gui.createPortWidget(1, "Порт A (Мотор)")
 	devicesContainer.Add(port1)
 
-	// Порт 2
-	port2 := gui.createPortWidget(2, "Порт B")
+	// Порт 2 - Мотор B
+	port2 := gui.createPortWidget(2, "Порт B (Мотор)")
 	devicesContainer.Add(port2)
 
-	// Порт 6 (светодиод)
-	port6 := gui.createPortWidget(6, "Светодиод")
+	// Порт 6 - Светодиод
+	port6 := gui.createPortWidget(6, "Встроенный светодиод")
 	devicesContainer.Add(port6)
+
+	// Датчики
+	sensorsWidget := gui.createSensorsWidget()
+	devicesContainer.Add(sensorsWidget)
 
 	// Батарея
 	batteryWidget := gui.createBatteryWidget()
@@ -290,7 +294,7 @@ func (gui *GUI) createDevicePanel() fyne.CanvasObject {
 	return container.NewVScroll(container.NewPadded(devicesContainer))
 }
 
-// createPortWidget создает виджет порта
+// createPortWidget создает виджет порта с динамическими данными
 func (gui *GUI) createPortWidget(portID byte, label string) fyne.CanvasObject {
 	// Иконка порта
 	icon := widget.NewIcon(theme.StorageIcon())
@@ -300,53 +304,80 @@ func (gui *GUI) createPortWidget(portID byte, label string) fyne.CanvasObject {
 	portLabel.Alignment = fyne.TextAlignCenter
 	portLabel.TextStyle.Bold = true
 
-	// Метка устройства
-	deviceLabel := widget.NewLabel("Не подключено")
-	deviceLabel.Alignment = fyne.TextAlignCenter
-	deviceLabel.TextStyle.Italic = true
+	// Метка значения
+	valueLabel := widget.NewLabel("Нет данных")
+	valueLabel.Alignment = fyne.TextAlignCenter
+	valueLabel.TextStyle.Italic = true
+
+	// Метка статуса
+	statusLabel := widget.NewLabel("Не подключено")
+	statusLabel.Alignment = fyne.TextAlignCenter
+	//statusLabel.TextSize = 10
 
 	// Контейнер порта
 	portContainer := container.NewVBox(
 		container.NewCenter(icon),
 		portLabel,
-		deviceLabel,
+		valueLabel,
+		statusLabel,
 		widget.NewSeparator(),
 	)
 
-	// Обновляем виджет при изменении состояния
+	// Обновляем виджет каждые 500мс
 	go func() {
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 
 		for range ticker.C {
-			hubInfo := gui.hubMgr.GetHubInfo()
-			var deviceName string
-			var isConnected bool
-
-			for _, port := range hubInfo.Ports {
-				if port.PortID == portID {
-					deviceName = port.DeviceName
-					isConnected = port.IsConnected
-					break
-				}
+			// Получаем данные из монитора сенсоров
+			var valueStr, deviceName string
+			if gui.hubMgr != nil && gui.hubMgr.GetSensorMonitor() != nil { // ИСПРАВЛЕНО
+				valueStr, deviceName = gui.hubMgr.GetSensorMonitor().GetSensorValue(portID) // ИСПРАВЛЕНО
 			}
-
 			fyne.Do(func() {
-				if isConnected {
-					deviceLabel.SetText(deviceName)
+				// Обновляем отображение
+				if deviceName != "" && deviceName != "Не подключено" {
+					statusLabel.SetText(fmt.Sprintf("✓ %s", deviceName))
+					statusLabel.TextStyle.Bold = true
 					icon.SetResource(theme.ConfirmIcon())
 				} else {
-					deviceLabel.SetText("Не подключено")
+					statusLabel.SetText("Не подключено")
+					statusLabel.TextStyle.Bold = false
 					icon.SetResource(theme.StorageIcon())
 				}
 
-				deviceLabel.Refresh()
+				valueLabel.SetText(valueStr)
+
+				// Обновляем виджеты
+				statusLabel.Refresh()
+				valueLabel.Refresh()
 				icon.Refresh()
 			})
 		}
 	}()
 
 	return portContainer
+}
+
+// formatPortValue форматирует значение порта
+func formatPortValue(port PortInfo) string {
+	if len(port.LastValue) == 0 {
+		return "Нет данных"
+	}
+
+	switch port.DeviceType {
+	case 0x01: // Мотор
+		return fmt.Sprintf("Мощность: %d%%", port.LastValue[0])
+	case 0x02: // Датчик наклона
+		return fmt.Sprintf("Угол: %d°", port.LastValue[0])
+	case 0x17: // RGB светодиод
+		if len(port.LastValue) >= 3 {
+			return fmt.Sprintf("RGB(%d,%d,%d)", port.LastValue[0], port.LastValue[1], port.LastValue[2])
+		}
+		return "Светодиод"
+	default:
+		return fmt.Sprintf("Значение: %v", port.LastValue)
+	}
 }
 
 // createBatteryWidget создает виджет батареи
@@ -716,5 +747,101 @@ func (gui *GUI) updateProgramCanvas() {
 	// Обновляем programPanel, если он существует
 	if gui.programPanel != nil {
 		gui.programPanel.Refresh()
+	}
+}
+
+// createSensorsWidget создает виджет для отображения всех датчиков
+func (gui *GUI) createSensorsWidget() fyne.CanvasObject {
+	// Заголовок
+	title := canvas.NewText("Датчики", color.NRGBA{R: 240, G: 240, B: 240, A: 255})
+	title.TextSize = 14
+	title.TextStyle.Bold = true
+
+	// Таблица датчиков
+	sensorTable := widget.NewTable(
+		func() (int, int) {
+			return 5, 2 // 5 строк, 2 колонки
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("Данные")
+		},
+		func(id widget.TableCellID, obj fyne.CanvasObject) {
+			label := obj.(*widget.Label)
+
+			// Определяем строки
+			sensorNames := []string{
+				"Батарея:",
+				"Мотор A:",
+				"Мотор B:",
+				"Светодиод:",
+				"Температура:",
+			}
+
+			if id.Row < len(sensorNames) {
+				if id.Col == 0 {
+					label.SetText(sensorNames[id.Row])
+					label.TextStyle.Bold = true
+				} else {
+					// Динамические значения
+					value := gui.getSensorValue(id.Row)
+					label.SetText(value)
+				}
+			}
+		},
+	)
+
+	sensorTable.SetColumnWidth(0, 100)
+	sensorTable.SetColumnWidth(1, 100)
+
+	// Контейнер
+	sensorContainer := container.NewVBox(
+		container.NewCenter(title),
+		sensorTable,
+		widget.NewSeparator(),
+	)
+
+	// Обновление таблицы
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			fyne.Do(func() {
+				sensorTable.Refresh()
+			})
+		}
+	}()
+
+	return sensorContainer
+}
+
+// getSensorValue возвращает значение для конкретного датчика
+func (gui *GUI) getSensorValue(sensorID int) string {
+	if gui.hubMgr == nil || gui.hubMgr.GetSensorMonitor() == nil {
+		return "--"
+	}
+
+	switch sensorID {
+	case 0: // Батарея
+		hubInfo := gui.hubMgr.GetHubInfo()
+		return fmt.Sprintf("%d%%", hubInfo.Battery)
+
+	case 1: // Мотор A
+		value, _ := gui.hubMgr.GetSensorMonitor().GetSensorValue(1)
+		return value
+
+	case 2: // Мотор B
+		value, _ := gui.hubMgr.GetSensorMonitor().GetSensorValue(2)
+		return value
+
+	case 3: // Светодиод
+		value, _ := gui.hubMgr.GetSensorMonitor().GetSensorValue(6)
+		return value
+
+	case 4: // Температура (тест)
+		return "23°C" // Заглушка
+
+	default:
+		return "--"
 	}
 }
