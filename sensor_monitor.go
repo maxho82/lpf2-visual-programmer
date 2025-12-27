@@ -112,7 +112,7 @@ func (sm *SensorMonitor) updatePortInfo(portID byte) {
 	}
 }
 
-func (sm *SensorMonitor) monitorLoop() {
+/* func (sm *SensorMonitor) monitorLoop() {
 	ticker := time.NewTicker(30 * time.Second) // Только для периодического опроса батареи
 	defer ticker.Stop()
 
@@ -126,7 +126,7 @@ func (sm *SensorMonitor) monitorLoop() {
 			}
 		}
 	}
-}
+} */
 
 // updateBatteryLevel обновляет уровень батареи
 func (sm *SensorMonitor) updateBatteryLevel() {

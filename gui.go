@@ -34,13 +34,14 @@ type GUI struct {
 	// Панели
 	devicePanel     fyne.CanvasObject
 	propertiesPanel fyne.CanvasObject
-	//programScroll   *container.Scroll // ДОБАВЛЕНО - прямой доступ к Scroll
+	//scrollContainer *container.Scroll // ДОБАВЛЕНО - прямой доступ к Scroll
 	programPanel *container.Scroll
 	blocksPanel  fyne.CanvasObject
 
 	// Для обновления устройств
-	deviceUpdateRequest     chan bool
-	deviceUpdateTicker      *time.Ticker
+	deviceUpdateRequest chan bool
+	//deviceUpdateTicker      *time.Ticker
+
 	dynamicDevicesContainer *fyne.Container
 	portWidgets             map[byte]*widget.Label // Для хранения меток статуса портов
 }
@@ -155,39 +156,6 @@ func (gui *GUI) deviceUpdateHandler() {
 	}
 }
 
-// updateDeviceDisplay обновляет отображение устройств
-func (gui *GUI) updateDeviceDisplay() {
-	fyne.Do(func() {
-		// Обновляем динамические устройства
-		if gui.dynamicDevicesContainer != nil {
-			gui.dynamicDevicesContainer.Objects = nil
-
-			if gui.programMgr != nil && gui.programMgr.deviceMgr != nil {
-				devices := gui.programMgr.deviceMgr.GetDevices()
-
-				if len(devices) == 0 {
-					noDevicesLabel := widget.NewLabel("Нет подключенных устройств")
-					noDevicesLabel.TextStyle.Italic = true
-					gui.dynamicDevicesContainer.Add(noDevicesLabel)
-				} else {
-					for _, device := range devices {
-						if device.IsConnected {
-							deviceCard := gui.createDeviceCard(device)
-							gui.dynamicDevicesContainer.Add(deviceCard)
-						}
-					}
-				}
-			} else {
-				noManagerLabel := widget.NewLabel("Менеджер устройств не инициализирован")
-				noManagerLabel.TextStyle.Italic = true
-				gui.dynamicDevicesContainer.Add(noManagerLabel)
-			}
-
-			gui.dynamicDevicesContainer.Refresh()
-		}
-	})
-}
-
 // updateBatteryDisplay обновляет только отображение батареи
 // (этот метод больше не нужен, т.к. батарея обновляется автоматически)
 // Если хотим оставить, исправляем:
@@ -274,35 +242,6 @@ func (gui *GUI) createDevicePanel() fyne.CanvasObject {
 		widget.NewSeparator(),
 	)
 
-	// --- Динамические устройства из DeviceManager ---
-	devicesTitle := widget.NewLabel("Подключенные устройства:")
-	devicesTitle.TextStyle.Bold = true
-	mainContainer.Add(devicesTitle)
-
-	// Контейнер для динамических устройств
-	gui.dynamicDevicesContainer = container.NewVBox()
-	mainContainer.Add(container.NewVScroll(gui.dynamicDevicesContainer))
-	mainContainer.Add(widget.NewSeparator())
-
-	// --- Фиксированные порты (для удобства) ---
-	portsTitle := widget.NewLabel("Порты хаба:")
-	portsTitle.TextStyle.Bold = true
-	mainContainer.Add(portsTitle)
-
-	// Порт 1 - Мотор A
-	port1 := gui.createPortWidget(1, "Порт A (Мотор)")
-	mainContainer.Add(port1)
-
-	// Порт 2 - Мотор B
-	port2 := gui.createPortWidget(2, "Порт B (Мотор)")
-	mainContainer.Add(port2)
-
-	// Порт 6 - Светодиод
-	port6 := gui.createPortWidget(6, "Встроенный светодиод")
-	mainContainer.Add(port6)
-
-	mainContainer.Add(widget.NewSeparator())
-
 	// --- Батарея ---
 	batteryWidget := gui.createBatteryWidget()
 	mainContainer.Add(batteryWidget)
@@ -311,7 +250,79 @@ func (gui *GUI) createDevicePanel() fyne.CanvasObject {
 	hubInfoWidget := gui.createHubInfoWidget()
 	mainContainer.Add(hubInfoWidget)
 
+	// --- Динамические устройства из DeviceManager ---
+	devicesTitle := widget.NewLabel("Подключенные устройства:")
+	devicesTitle.TextStyle.Bold = true
+	mainContainer.Add(devicesTitle)
+
+	// Контейнер для динамических устройств с фиксированной минимальной высотой
+	//gui.dynamicDevicesContainer = container.NewVBox()
+	gui.dynamicDevicesContainer = container.NewVBox()
+	// Создаем контейнер с минимальной высотой (примерно 5 строк по 30px = 150px)
+
+	ScrollContainer := container.NewVScroll(gui.dynamicDevicesContainer)
+	ScrollContainer.SetMinSize(fyne.NewSize(250, 300))
+	mainContainer.Add(ScrollContainer)
+	mainContainer.Add(widget.NewSeparator())
+
+	/* 	// --- Фиксированные порты (для удобства) ---
+	   	portsTitle := widget.NewLabel("Порты хаба:")
+	   	portsTitle.TextStyle.Bold = true
+	   	mainContainer.Add(portsTitle)
+
+	   	// Порт 1 - Мотор A
+	   	port1 := gui.createPortWidget(1, "Порт A (Мотор)")
+	   	mainContainer.Add(port1)
+
+	   	// Порт 2 - Мотор B
+	   	port2 := gui.createPortWidget(2, "Порт B (Мотор)")
+	   	mainContainer.Add(port2)
+
+	   	// Порт 6 - Светодиод
+	   	port6 := gui.createPortWidget(6, "Встроенный светодиод")
+	   	mainContainer.Add(port6)
+
+	   	mainContainer.Add(widget.NewSeparator()) */
+
 	return container.NewVScroll(container.NewPadded(mainContainer))
+}
+
+// updateDeviceDisplay обновляет отображение устройств
+func (gui *GUI) updateDeviceDisplay() {
+	fyne.Do(func() {
+		// Обновляем динамические устройства
+		if gui.dynamicDevicesContainer != nil {
+			gui.dynamicDevicesContainer.Objects = nil
+
+			if gui.programMgr != nil && gui.programMgr.deviceMgr != nil {
+				devices := gui.programMgr.deviceMgr.GetDevices()
+
+				if len(devices) == 0 {
+					noDevicesLabel := widget.NewLabel("Нет подключенных устройств")
+					noDevicesLabel.TextStyle.Italic = true
+					noDevicesLabel.Alignment = fyne.TextAlignCenter
+					gui.dynamicDevicesContainer.Add(noDevicesLabel)
+				} else {
+					for _, device := range devices {
+						if device.IsConnected {
+							deviceCard := gui.createDeviceCard(device)
+							gui.dynamicDevicesContainer.Add(deviceCard)
+							gui.dynamicDevicesContainer.MinSize()
+							gui.dynamicDevicesContainer.Refresh()
+						}
+					}
+				}
+			} else {
+				noManagerLabel := widget.NewLabel("Менеджер устройств не инициализирован")
+				noManagerLabel.TextStyle.Italic = true
+				noManagerLabel.Alignment = fyne.TextAlignCenter
+				gui.dynamicDevicesContainer.Add(noManagerLabel)
+			}
+
+			gui.dynamicDevicesContainer.Resize(fyne.NewSize(0, 300))
+			gui.dynamicDevicesContainer.Refresh()
+		}
+	})
 }
 
 // createDeviceCard создает карточку устройства
@@ -350,7 +361,6 @@ func (gui *GUI) createDeviceCard(device Device) fyne.CanvasObject {
 
 	// Дополнительные свойства
 	propsContainer := container.NewVBox()
-
 	// Показываем последние значения или свойства
 	if device.LastValue != nil {
 		valLabel := widget.NewLabel(fmt.Sprintf("Значение: %v", device.LastValue))
@@ -375,7 +385,7 @@ func (gui *GUI) createDeviceCard(device Device) fyne.CanvasObject {
 		updateLabel.TextStyle.Italic = true
 		propsContainer.Add(updateLabel)
 	}
-
+	propsContainer.Resize(fyne.NewSize(0, 150))
 	return container.NewVBox(
 		mainInfo,
 		widget.NewSeparator(),
@@ -449,7 +459,7 @@ func (gui *GUI) createPortWidget(portID byte, label string) fyne.CanvasObject {
 	return portContainer
 } */
 
-// createPortWidget создает виджет порта (только статическая информация)
+/* // createPortWidget создает виджет порта (только статическая информация)
 func (gui *GUI) createPortWidget(portID byte, label string) fyne.CanvasObject {
 	// Иконка порта
 	icon := widget.NewIcon(theme.StorageIcon())
@@ -513,9 +523,9 @@ func (gui *GUI) createPortWidget(portID byte, label string) fyne.CanvasObject {
 			}
 		}
 	}(portID, statusLabel, icon)
-
+	portContainer.Resize(fyne.NewSize(0, 150))
 	return portContainer
-}
+} */
 
 /* // formatPortValue форматирует значение порта
 func formatPortValue(port PortInfo) string {
@@ -538,11 +548,11 @@ func formatPortValue(port PortInfo) string {
 	}
 }
 */
-// updateHubInfoDisplay обновляет отображение информации о хабе
+/* // updateHubInfoDisplay обновляет отображение информации о хабе
 func (gui *GUI) updateHubInfoDisplay() {
 	// Этот метод может использоваться для принудительного обновления
 	// информации о хабе, если потребуется
-}
+} */
 
 // createBatteryWidget создает виджет батареи
 func (gui *GUI) createBatteryWidget() fyne.CanvasObject {
@@ -554,15 +564,15 @@ func (gui *GUI) createBatteryWidget() fyne.CanvasObject {
 	// Прогресс-бар
 	progress := widget.NewProgressBar()
 
-	// Метка процентов
-	percentLabel := widget.NewLabel("--%")
-	percentLabel.Alignment = fyne.TextAlignCenter
+	/* 	// Метка процентов
+	   	percentLabel := widget.NewLabel("--%")
+	   	percentLabel.Alignment = fyne.TextAlignCenter */
 
 	// Контейнер
 	batteryContainer := container.NewVBox(
 		container.NewCenter(title),
 		progress,
-		percentLabel,
+		//percentLabel,
 		widget.NewSeparator(),
 	)
 
@@ -578,9 +588,9 @@ func (gui *GUI) createBatteryWidget() fyne.CanvasObject {
 
 				fyne.Do(func() {
 					progress.SetValue(float64(batteryLevel) / 100)
-					percentLabel.SetText(fmt.Sprintf("%d%%", batteryLevel))
+					//percentLabel.SetText(fmt.Sprintf("%d%%", batteryLevel))
 					progress.Refresh()
-					percentLabel.Refresh()
+					//percentLabel.Refresh()
 				})
 			}
 		}
@@ -908,7 +918,7 @@ func (gui *GUI) showProtocolTestDialog() {
 	// Поле для данных (в hex)
 	dataEntry := widget.NewEntry()
 	dataEntry.SetPlaceHolder("Данные в hex (например: 08040603FF000000)")
-	dataEntry.SetText("08040603FF000000") // Пример: включить красный светодиод
+	dataEntry.SetText("0102061700010000000201") // Пример: включить красный светодиод
 
 	// Поле для результата
 	resultLabel := widget.NewLabel("")
@@ -931,6 +941,8 @@ func (gui *GUI) showProtocolTestDialog() {
 			return
 		}
 
+		//data1 := []byte{0x01, 0x02, 0x06, 0x17, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x01}
+
 		// Отправляем данные
 		err = gui.hubMgr.WriteCharacteristic(uuid, data)
 		if err != nil {
@@ -949,6 +961,8 @@ func (gui *GUI) showProtocolTestDialog() {
 				widget.NewLabel("• 00001563-1212-efde-1523-785feabcd123 - Настройка (Input)"),
 				widget.NewSeparator(),
 				widget.NewLabel("Примеры данных:"),
+				widget.NewLabel("• 0102061700010000000201 - Включить режим светодиода ЛЕГО"),
+				widget.NewLabel("• 0102061701010000000201 - Включить режим светодиода RGB"),
 				widget.NewLabel("• 08040603FF000000 - Красный светодиод"),
 				widget.NewLabel("• 0604040101 - Мотор A (50%)"),
 				widget.NewLabel("• 0804060300000000 - Выключить светодиод"),
