@@ -10,6 +10,9 @@ const (
 	INPUT_COMMAND_UUID  = "00001563-1212-efde-1523-785feabcd123" // Для настройки режима
 	OUTPUT_COMMAND_UUID = "00001565-1212-efde-1523-785feabcd123" // Для отправки команд
 	PORT_NOTIF_UUID     = "00001524-1212-efde-1523-785feabcd123"
+
+	FIRMWARE_SERVICE_UUID = "00004f0e-1212-efde-1523-785feabcd123"
+	FIRMWARE_CHAR_UUID    = "00004f01-1212-efde-1523-785feabcd123"
 )
 
 // --- Константы для режимов (как в WeDo2.py) ---

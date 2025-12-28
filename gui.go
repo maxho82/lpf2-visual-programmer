@@ -34,12 +34,12 @@ type GUI struct {
 	// Панели
 	devicePanel     fyne.CanvasObject
 	propertiesPanel fyne.CanvasObject
-	//scrollContainer *container.Scroll // ДОБАВЛЕНО - прямой доступ к Scroll
-	programPanel *container.Scroll
-	blocksPanel  fyne.CanvasObject
+	programPanel    *container.Scroll
+	blocksPanel     fyne.CanvasObject
 
 	// Для обновления устройств
 	deviceUpdateRequest chan bool
+	//currentDialog       dialog.Dialog
 	//deviceUpdateTicker      *time.Ticker
 
 	dynamicDevicesContainer *fyne.Container
@@ -601,17 +601,14 @@ func (gui *GUI) createBatteryWidget() fyne.CanvasObject {
 
 // createHubInfoWidget создает виджет информации о хабе
 func (gui *GUI) createHubInfoWidget() fyne.CanvasObject {
-	// Заголовок
 	title := canvas.NewText("Информация о хабе", color.NRGBA{R: 240, G: 240, B: 240, A: 255})
 	title.TextSize = 14
 	title.TextStyle.Bold = true
 
-	// Поля информации
 	nameLabel := widget.NewLabel("Имя: --")
 	addressLabel := widget.NewLabel("Адрес: --")
 	firmwareLabel := widget.NewLabel("Прошивка: --")
 
-	// Контейнер
 	infoContainer := container.NewVBox(
 		container.NewCenter(title),
 		nameLabel,
@@ -622,16 +619,25 @@ func (gui *GUI) createHubInfoWidget() fyne.CanvasObject {
 
 	// Обновление информации
 	go func() {
-		ticker := time.NewTicker(2 * time.Second)
+		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
+			if gui.hubMgr == nil {
+				continue
+			}
+
 			hubInfo := gui.hubMgr.GetHubInfo()
 
 			fyne.Do(func() {
 				nameLabel.SetText(fmt.Sprintf("Имя: %s", hubInfo.Name))
 				addressLabel.SetText(fmt.Sprintf("Адрес: %s", hubInfo.Address))
-				firmwareLabel.SetText(fmt.Sprintf("Прошивка: %s", hubInfo.Firmware))
+
+				firmwareText := hubInfo.Firmware
+				if firmwareText == "" {
+					firmwareText = "Неизвестно"
+				}
+				firmwareLabel.SetText(fmt.Sprintf("Прошивка: %s", firmwareText))
 
 				nameLabel.Refresh()
 				addressLabel.Refresh()
@@ -748,11 +754,13 @@ func (gui *GUI) createStatusBar() *fyne.Container {
 
 // showHubDiscoveryDialog показывает диалог поиска хаба
 func (gui *GUI) showHubDiscoveryDialog() {
-	progress := dialog.NewProgress("Поиск LPF2-хабов", "Сканирование...", gui.window)
+
+	progress := dialog.NewProgressInfinite("Поиск LPF2-хабов", "Сканирование...", gui.window)
+
 	progress.Show()
 
 	go func() {
-		hubs, err := gui.hubMgr.ScanForHubs(15 * time.Second)
+		hubs, err := gui.hubMgr.ScanForHubs(5 * time.Second)
 
 		fyne.Do(func() {
 			progress.Hide()
@@ -780,6 +788,7 @@ func (gui *GUI) showHubDiscoveryDialog() {
 						fullName := fmt.Sprintf("%s (%s)", hub.Name, hub.Address)
 						if fullName == selected {
 							gui.connectToHub(hub.Address)
+
 							break
 						}
 					}
@@ -791,14 +800,19 @@ func (gui *GUI) showHubDiscoveryDialog() {
 				list,
 			)
 
-			dialog.ShowCustom("Выбор хаба", "Подключиться", content, gui.window)
+			// Создаем диалог и сохраняем ссылку
+			selectDialog := dialog.NewCustom("Выбор хаба", "Закрыть", content, gui.window)
+			selectDialog.Show()
 		})
 	}()
+
 }
 
 // connectToHub подключается к указанному хабу
 func (gui *GUI) connectToHub(address string) {
 	progress := dialog.NewProgress("Подключение", "Подключение к хабу...", gui.window)
+	// Закрываем предыдущие диалоги
+
 	progress.Show()
 
 	go func() {

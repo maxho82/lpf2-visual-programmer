@@ -323,3 +323,32 @@ func (sm *SensorMonitor) UpdateDevices() {
 
 	sm.deviceMgr.UpdateDevices(portInfos)
 }
+
+func (sm *SensorMonitor) getDeviceNameForType(deviceType byte) string {
+	switch deviceType {
+	case 0x00:
+		return "Нет устройства"
+	case 0x01:
+		return "Мотор"
+	case 0x02:
+		return "Датчик наклона"
+	case 0x08:
+		return "Светодиод"
+	case 0x17:
+		return "RGB светодиод"
+	case 0x14, 0x15, 0x16:
+		return "Датчик расстояния"
+	case 0x20:
+		return "Внешний мотор"
+	case 0x21:
+		return "Датчик касания"
+	case 0x22:
+		return "Датчик тока"
+	case 0x23:
+		return "Датчик напряжения"
+	case 0x25:
+		return "Датчик цвета"
+	default:
+		return fmt.Sprintf("Неизвестное (0x%02x)", deviceType)
+	}
+}

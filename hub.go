@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,16 +14,17 @@ import (
 
 // HubManager управляет подключением к LPF2-хабу
 type HubManager struct {
-	adapter         *tinybluetooth.Adapter
-	device          tinybluetooth.Device
-	deviceAddress   string
-	isConnected     bool
-	connectionMutex sync.RWMutex
-	hubInfo         *HubInfo
-	stopScan        context.CancelFunc
-	services        map[string]tinybluetooth.DeviceService
-	characteristics map[string]tinybluetooth.DeviceCharacteristic
-	sensorMonitor   *SensorMonitor // ДОБАВЛЕНО
+	adapter                  *tinybluetooth.Adapter
+	device                   tinybluetooth.Device
+	deviceAddress            string
+	isConnected              bool
+	connectionMutex          sync.RWMutex
+	hubInfo                  *HubInfo
+	stopScan                 context.CancelFunc
+	services                 map[string]tinybluetooth.DeviceService
+	characteristics          map[string]tinybluetooth.DeviceCharacteristic
+	sensorMonitor            *SensorMonitor // ДОБАВЛЕНО
+	portNotificationCallback func(portID byte, deviceType byte, data []byte)
 }
 
 // HubInfo содержит информацию о подключенном хабе
@@ -212,6 +215,103 @@ func (hm *HubManager) Connect(address string) error {
 			}
 		}
 	}
+	// Получаем версию прошивки
+	if serviceUUID := tinybluetooth.NewUUID(parseUUID(FIRMWARE_SERVICE_UUID)); err == nil {
+		services, err := hm.device.DiscoverServices([]tinybluetooth.UUID{serviceUUID})
+		if err == nil && len(services) > 0 {
+			charUUID := tinybluetooth.NewUUID(parseUUID(FIRMWARE_CHAR_UUID))
+			chars, err := services[0].DiscoverCharacteristics([]tinybluetooth.UUID{charUUID})
+			if err == nil && len(chars) > 0 {
+				char := chars[0]
+
+				// Читаем версию прошивки
+				data := []byte{}
+				_, err := char.Read(data)
+				if err == nil && len(data) > 0 {
+					firmware := string(data)
+					log.Printf("Версия прошивки: %s", firmware)
+
+					hm.connectionMutex.Lock()
+					if hm.hubInfo != nil {
+						hm.hubInfo.Firmware = firmware
+					}
+					hm.connectionMutex.Unlock()
+				}
+
+				// Подписываемся на обновления
+				char.EnableNotifications(func(data []byte) {
+					if len(data) > 0 {
+						firmware := string(data)
+						log.Printf("Обновление версии прошивки: %s", firmware)
+
+						hm.connectionMutex.Lock()
+						if hm.hubInfo != nil {
+							hm.hubInfo.Firmware = firmware
+						}
+						hm.connectionMutex.Unlock()
+					}
+				})
+			}
+		}
+	}
+
+	// Подписка на уведомления портов
+	if portChar, ok := hm.characteristics[PORT_NOTIF_UUID]; ok {
+		err := portChar.EnableNotifications(func(data []byte) {
+			if len(data) >= 3 {
+				portID := data[1]
+				deviceType := data[2]
+
+				log.Printf("Уведомление порта %d, тип устройства: 0x%02x", portID, deviceType)
+
+				if hm.portNotificationCallback != nil {
+					hm.portNotificationCallback(portID, deviceType, data)
+				}
+
+				hm.connectionMutex.Lock()
+				if hm.hubInfo != nil {
+					var portInfo *PortInfo
+					for i := range hm.hubInfo.Ports {
+						if hm.hubInfo.Ports[i].PortID == portID {
+							portInfo = &hm.hubInfo.Ports[i]
+							break
+						}
+					}
+
+					if portInfo == nil {
+						portInfo = &PortInfo{
+							PortID:      portID,
+							DeviceType:  deviceType,
+							IsConnected: true,
+							LastUpdate:  time.Now(),
+						}
+						hm.hubInfo.Ports = append(hm.hubInfo.Ports, *portInfo)
+					} else {
+						portInfo.DeviceType = deviceType
+						portInfo.IsConnected = true
+						portInfo.LastUpdate = time.Now()
+					}
+				}
+				hm.connectionMutex.Unlock()
+			}
+		})
+
+		if err != nil {
+			log.Printf("Ошибка подписки на порты: %v", err)
+		} else {
+			log.Println("Подписка на уведомления портов установлена")
+
+			// Отправляем запрос на получение информации о портах
+			if inputChar, ok := hm.characteristics[INPUT_COMMAND_UUID]; ok {
+				_, err := inputChar.WriteWithoutResponse([]byte{0x01})
+				if err != nil {
+					log.Printf("Ошибка запроса информации о портах: %v", err)
+				} else {
+					log.Println("Запрос информации о портах отправлен")
+				}
+			}
+		}
+	}
 
 	// Обновляем информацию о хабе
 	hm.hubInfo.Name = targetDevice.LocalName()
@@ -232,6 +332,22 @@ func (hm *HubManager) Connect(address string) error {
 	}()
 
 	return nil
+}
+func parseUUID(uuidStr string) [16]byte {
+	// Упрощенный парсинг UUID - в реальном коде нужно обрабатывать дефисы
+	var uuid [16]byte
+	// Преобразуем строку UUID в байты
+	// Пример: "00004f0e-1212-efde-1523-785feabcd123"
+	hexStr := strings.ReplaceAll(uuidStr, "-", "")
+	for i := 0; i < 32; i += 2 {
+		b, _ := strconv.ParseUint(hexStr[i:i+2], 16, 8)
+		uuid[i/2] = byte(b)
+	}
+	return uuid
+}
+
+func (hm *HubManager) SetPortNotificationCallback(callback func(portID byte, deviceType byte, data []byte)) {
+	hm.portNotificationCallback = callback
 }
 
 // Disconnect отключается от хаба
@@ -294,24 +410,17 @@ func (hm *HubManager) WriteCharacteristic(uuid string, data []byte) error {
 	}
 
 	// Находим характеристику по UUID
-	for _, service := range hm.services {
-		chars, err := service.DiscoverCharacteristics(nil)
-		if err != nil {
-			continue
-		}
-
-		for _, char := range chars {
-			if char.UUID().String() == uuid {
-				// Отправляем данные
-				_, err := char.WriteWithoutResponse(data)
-				if err != nil {
-					return fmt.Errorf("ошибка отправки данных: %v", err)
-				}
-				log.Printf("Данные успешно отправлены на хаб")
-				return nil
-			}
-		}
+	char, exists := hm.characteristics[uuid]
+	if !exists {
+		return fmt.Errorf("характеристика %s не найдена", uuid)
 	}
 
-	return fmt.Errorf("характеристика %s не найдена", uuid)
+	// Отправляем данные
+	_, err := char.WriteWithoutResponse(data)
+	if err != nil {
+		return fmt.Errorf("ошибка отправки данных: %v", err)
+	}
+
+	log.Printf("Данные успешно отправлены на хаб")
+	return nil
 }

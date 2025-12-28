@@ -31,6 +31,14 @@ func main() {
 	sensorMonitor := NewSensorMonitor(hubMgr, programMgr.deviceMgr, gui)
 	hubMgr.SetSensorMonitor(sensorMonitor)
 
+	hubMgr.SetPortNotificationCallback(func(portID byte, deviceType byte, data []byte) {
+		log.Printf("Порт %d: обнаружено устройство типа 0x%02x", portID, deviceType)
+
+		if sensorMonitor != nil {
+			go sensorMonitor.UpdateDevices()
+		}
+	})
+
 	window.SetContent(gui.BuildUI())
 
 	// Запускаем мониторинг только при подключении
