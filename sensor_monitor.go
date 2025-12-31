@@ -324,7 +324,7 @@ func (sm *SensorMonitor) UpdateDevices() {
 	sm.deviceMgr.UpdateDevices(portInfos)
 }
 
-func (sm *SensorMonitor) getDeviceNameForType(deviceType byte) string {
+/* func (sm *SensorMonitor) getDeviceNameForType(deviceType byte) string {
 	switch deviceType {
 	case 0x00:
 		return "Нет устройства"
@@ -351,4 +351,4 @@ func (sm *SensorMonitor) getDeviceNameForType(deviceType byte) string {
 	default:
 		return fmt.Sprintf("Неизвестное (0x%02x)", deviceType)
 	}
-}
+} */

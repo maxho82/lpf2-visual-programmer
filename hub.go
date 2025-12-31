@@ -96,7 +96,7 @@ func (hm *HubManager) ScanForHubs(timeout time.Duration) ([]HubInfo, error) {
 		}
 
 		// Ищем LPF2 хаб по имени
-		if name == "LPF2 Smart Hub 2 I/O" {
+		if strings.Contains(strings.ToUpper(name), "LPF2") || strings.Contains(strings.ToUpper(name), "WEDO") || strings.Contains(strings.ToUpper(name), "LEGO") {
 			log.Printf("!!! НАЙДЕН LPF2 ХАБ: %s [%s]", name, address)
 
 			scanMutex.Lock()
@@ -110,19 +110,6 @@ func (hm *HubManager) ScanForHubs(timeout time.Duration) ([]HubInfo, error) {
 			adapter.StopScan()
 			cancel()
 			return
-		}
-
-		// Альтернативные имена хаба
-		if name == "LEGO Hub" || name == "Wedo" || name == "LEGO HUB" ||
-			name == "LEGO Boost" || name == "Move Hub" {
-			log.Printf("Найден LEGO хаб: %s [%s]", name, address)
-
-			scanMutex.Lock()
-			foundHubs = append(foundHubs, HubInfo{
-				Name:    name,
-				Address: address,
-			})
-			scanMutex.Unlock()
 		}
 	})
 
