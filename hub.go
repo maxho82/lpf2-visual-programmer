@@ -23,8 +23,9 @@ type HubManager struct {
 	stopScan                 context.CancelFunc
 	services                 map[string]tinybluetooth.DeviceService
 	characteristics          map[string]tinybluetooth.DeviceCharacteristic
-	sensorMonitor            *SensorMonitor // ДОБАВЛЕНО
+	sensorMonitor            *SensorMonitor
 	portNotificationCallback func(portID byte, deviceType byte, data []byte)
+	stateChangedCallback     func() // Добавим callback для изменений состояния
 }
 
 // HubInfo содержит информацию о подключенном хабе
@@ -202,7 +203,7 @@ func (hm *HubManager) Connect(address string) error {
 			}
 		}
 	}
-	// Получаем версию прошивки
+	// 1. Получаем версию прошивки
 	if serviceUUID := tinybluetooth.NewUUID(parseUUID(FIRMWARE_SERVICE_UUID)); err == nil {
 		services, err := hm.device.DiscoverServices([]tinybluetooth.UUID{serviceUUID})
 		if err == nil && len(services) > 0 {
@@ -239,6 +240,51 @@ func (hm *HubManager) Connect(address string) error {
 					}
 				})
 			}
+		}
+	}
+	// 2. Получаем уровень батареи
+	log.Println("Получение уровня батареи...")
+
+	batteryServiceUUIDBytes := parseUUID(batteryServiceUUID)
+	batteryCharUUIDBytes := parseUUID(batteryCharUUID)
+
+	serviceUUID := tinybluetooth.NewUUID(batteryServiceUUIDBytes)
+	services, err = hm.device.DiscoverServices([]tinybluetooth.UUID{serviceUUID})
+	if err == nil && len(services) > 0 {
+		charUUID := tinybluetooth.NewUUID(batteryCharUUIDBytes)
+		chars, err := services[0].DiscoverCharacteristics([]tinybluetooth.UUID{charUUID})
+		if err == nil && len(chars) > 0 {
+			char := chars[0]
+
+			// Читаем начальное значение батареи
+			data := []byte{}
+			_, err := char.Read(data)
+			if err == nil && len(data) > 0 {
+				batteryLevel := int(data[0])
+				log.Printf("Уровень батареи: %d%%", batteryLevel)
+				hm.hubInfo.Battery = batteryLevel
+
+				if hm.stateChangedCallback != nil {
+					hm.stateChangedCallback()
+				}
+			}
+
+			// Подписываемся на обновления батареи
+			char.EnableNotifications(func(data []byte) {
+				if len(data) > 0 {
+					batteryLevel := int(data[0])
+					log.Printf("Обновление уровня батареи: %d%%", batteryLevel)
+
+					hm.connectionMutex.Lock()
+					hm.hubInfo.Battery = batteryLevel
+					hm.connectionMutex.Unlock()
+
+					if hm.stateChangedCallback != nil {
+						hm.stateChangedCallback()
+					}
+				}
+			})
+			log.Println("Подписка на обновления батареи установлена")
 		}
 	}
 
@@ -410,4 +456,9 @@ func (hm *HubManager) WriteCharacteristic(uuid string, data []byte) error {
 
 	log.Printf("Данные успешно отправлены на хаб")
 	return nil
+}
+
+// SetStateChangedCallback устанавливает callback для изменений состояния
+func (hm *HubManager) SetStateChangedCallback(callback func()) {
+	hm.stateChangedCallback = callback
 }

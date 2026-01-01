@@ -13,6 +13,9 @@ const (
 
 	FIRMWARE_SERVICE_UUID = "00004f0e-1212-efde-1523-785feabcd123"
 	FIRMWARE_CHAR_UUID    = "00004f01-1212-efde-1523-785feabcd123"
+
+	batteryServiceUUID = "0000180f-0000-1000-8000-00805f9b34fb"
+	batteryCharUUID    = "00002a19-0000-1000-8000-00805f9b34fb"
 )
 
 // --- Константы для режимов (как в WeDo2.py) ---
