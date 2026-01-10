@@ -1,0 +1,159 @@
+wedo> write_char 0000152e-1212-efde-1523-785feabcd123 00
+2026/01/04 22:35:00 Запись в характеристику Неизвестная характеристика (0000152e):
+2026/01/04 22:35:00   Данные (HEX): 00
+2026/01/04 22:35:00   Данные (RAW): [0]
+2026/01/04 22:35:00   Длина: 1 байт
+2026/01/04 22:35:01   Данные успешно отправлены!
+
+write_char 0000152b-1212-efde-1523-785feabcd123 00   -  отключается нафиг
+
+write_char 0000152a-1212-efde-1523-785feabcd123 01
+
+write_char 00001563-1212-efde-1523-785feabcd123 0102022300010000000201
+
+write_char 00001563-1212-efde-1523-785feabcd123 0102042700010000000201
+
+write_char 00001565-1212-efde-1523-785feabcd123 050204B801F401
+write_char 00001563-1212-efde-1523-785feabcd123 050204
+write_char 5833ff03-9b8b-5191-6142-22a4536ef123  050204B801F401
+unsubscribe_char 00001527-1212-efde-1523-785feabcd123
+subscribe_char 0000152b-1212-efde-1523-785feabcd123
+subscribe_char 00001561-1212-efde-1523-785feabcd123
+write_char 00001563-1212-efde-1523-785feabcd123 0205220001000000000001
+
+write_char 00001563-1212-efde-1523-785feabcd123 0201052201010000000201
+
+
+Входяшие сообщения
+
+Этот класс представляет конфигурацию входного сигнала (датчика). В любой момент времени датчик может находиться только в одном режиме, и детали этого режима фиксируются этим классом.
+11 байт
+1 - порт
+2 - Интервал удержания
+3 - mode (режим ввода)
+4 - NotificationsEnabled ДА, если новые значения отправляются всякий раз, когда значение входных данных выходит за пределы дельта-интервала. Значение True, если включены уведомления
+5 - Количество байт. Ожидаемое количество байт в полезной нагрузке входных данных (устанавливается устройством). 
+6 - Revision. Редакция <see cref="InputFormat"/> (устанавливается с помощью <see cref="iDevice"/>). Когда для службы устанавливается новый <см. cref="InputFormat"/>, устройство отправляет обновленный <см. cref="InputFormat"/> через	<см. 					       cref="IServiceDelegate".DidUpdateInputFormat"/>. Устройство присвоит номер редакции новому <см. cref="InputFormat"/>. Номер редакции сопоставляется с форматом редакции при получении значений для соответствующей службы.
+7 - Идентификатор типа соответствующей службы.
+8 - Единица измерения, в которой передаются значения (в виде необработанных значений или в виде значений системы СИ)
+			var format = new InputFormat() {
+				Revision = data[0],
+				ConnectId = data[1],
+				TypeId = data[2],
+				Mode = data[3],
+				DeltaInterval = BitConverter.ToUInt32(data, 4),
+				Unit = (InputFormatUnit) data[8],
+				NotificationsEnabled = data[9] == 1,
+				NumberOfBytes = data[10],
+				
+		internal static byte[] InputFormatToByteArray(InputFormat inputFormat) {
+			var deltaInterval = BitConverter.GetBytes(inputFormat.DeltaInterval);
+			var data = new byte[] {
+				(byte)inputFormat.TypeId,
+				(byte)inputFormat.Mode,
+				deltaInterval[0],
+				deltaInterval[1],
+				deltaInterval[2],
+				deltaInterval[3],
+				(byte)inputFormat.Unit,
+				inputFormat.NotificationsEnabled ? (byte)1 : (byte)0,
+			};
+			return data;
+				
+				
+Этот класс содержит информацию, подробно описывающую, как следует интерпретировать данные, полученные для данной службы (обычно это какой-либо датчик).
+	///Для типов senors, распознаваемых SDK (таких как <см. cref="BluetoothTiltSensor"/> и <см. cref="BluetoothMotionSensor"/>), вам не нужно будет знать подробности об этом классе, поскольку реализация этих сервисов в SDK сделает это за вас.
+	///Если вам нужно получить доступ к входным данным, которые не распознаются SDK, вам следует создать и установить один или несколько допустимых форматов ввода для <см. cref="IService"/>. Смотрите пример в документации <see cref="BluetoothGenericService"/>.
+	DataFormat
+	1 Количество наборов данных (fx. size 3 для датчика, который выдает значение в направлениях x, y и z)
+	2 Размер набора данных - fx. 4, если данные являются четырехбайтовыми с плавающей точкой
+	3 Режим работы датчика
+	4 Название режима датчика (например, сбой, наклон или угол наклона для датчика наклона)
+	5 Блок датчиков 
+	6 Название блока датчика (Raw или SI)
+	
+.............................................................................................................
+
+	Информация о подключении представляет собой общую информацию о вводе-выводе (сервисе), подключенном к устройству.
+		
+public class ConnectInfo
+		
+1	ConnectId Идентификатор, используемый для уникальной идентификации службы и обращения к ней. Гарантируется, что устройство не будет одновременно использовать две службы с одинаковым идентификатором подключения
+
+2	Revision FirmwareVersion Версия встроенного ПО подключенного устройства ввода-вывода, полученная от устройства
+
+3	Revision HardwareVersion Аппаратная версия подключенного ввода-вывода, полученная от устройства
+
+4	HubIndex Индекс порта на концентраторе, к которому подключен ввод-вывод. Если индекс больше или равен 50, служба является внутренней.
+
+5	Type  Тип ввода-вывода. Это исходный номер типа, полученный от устройства
+
+6	IoType TypeEnum  Тип ввода-вывода. Используйте свойство type, чтобы получить исходный номер типа, полученный от устройства
+
+7	TypeString Тип ввода-вывода в виде строки - полезен для печати в инструкциях отладки
+
+/// <returns>Returns a string for the input type</returns>
+		public static string StringFromInputType(IoType ioType) {
+			switch (ioType) {
+				case IoType.IoTypeMotor:
+					return "Motor";
+				case IoType.IoTypeVoltage:
+					return "Voltage";
+				case IoType.IoTypeCurrent:
+					return "Current";
+				case IoType.IoTypePiezoTone:
+					return "Piezo tone";
+				case IoType.IoTypeRgbLight:
+					return "RGB light";
+				case IoType.IoTypeTiltSensor:
+					return "Tilt sensor";
+				case IoType.IoTypeMotionSensor:
+					return "Motion sensor";
+				case IoType.IoTypeGeneric:
+					return "Generic";
+				default:
+					return "Generic";
+			}
+		}
+		
+		internal static ConnectInfo FromByteArray(byte[] data) {
+			if (data.Length < 2)
+				return null;
+			if ((data[1] == 1 && data.Length != 12) || (data[1] == 0 && data.Length != 2))
+				return null;
+			var connectInfo = new ConnectInfo {ConnectId = data[0]};
+			if (data[1] == 1) {
+				connectInfo.HubIndex = data[2];
+				var typeId = data[3];
+				connectInfo.Type = typeId;
+				if (typeId == 1)
+					connectInfo.TypeEnum = IoType.IoTypeMotor;
+				else if (typeId == 20)
+					connectInfo.TypeEnum = IoType.IoTypeVoltage;
+				else if (typeId == 21)
+					connectInfo.TypeEnum = IoType.IoTypeCurrent;
+				else if (typeId == 22)
+					connectInfo.TypeEnum = IoType.IoTypePiezoTone;
+				else if (typeId == 23)
+					connectInfo.TypeEnum = IoType.IoTypeRgbLight;
+				else if (typeId == 34)
+					connectInfo.TypeEnum = IoType.IoTypeTiltSensor;
+				else if (typeId == 35)
+					connectInfo.TypeEnum = IoType.IoTypeMotionSensor;
+				else
+					connectInfo.TypeEnum = IoType.IoTypeGeneric;
+
+				connectInfo.HardwareVersion = Revision.FromByteArray(data.ToList().GetRange(4, 4).ToArray());
+				connectInfo.FirmwareVersion = Revision.FromByteArray(data.ToList().GetRange(8, 4).ToArray());
+
+			}
+			return connectInfo;
+
+	,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+	Эта услуга позволяет воспроизводить звуковые сигналы на заданной частоте
+	
+	
+	
+	
+	
+	
