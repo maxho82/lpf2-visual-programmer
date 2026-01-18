@@ -31,7 +31,6 @@ func NewBlockPropertyEditor(block *ProgramBlock, deviceMgr *DeviceManager) *Bloc
 func (editor *BlockPropertyEditor) buildUI() *fyne.Container {
 	mainContainer := container.NewVBox()
 
-	// Заголовок с типом блока
 	title := widget.NewLabelWithStyle(
 		"Настройки: "+editor.block.Title,
 		fyne.TextAlignCenter,
@@ -40,7 +39,6 @@ func (editor *BlockPropertyEditor) buildUI() *fyne.Container {
 	mainContainer.Add(title)
 	mainContainer.Add(widget.NewSeparator())
 
-	// Добавляем элементы управления в зависимости от типа блока
 	switch editor.block.Type {
 	case BlockTypeMotor:
 		editor.addMotorControls(mainContainer)
@@ -50,9 +48,37 @@ func (editor *BlockPropertyEditor) buildUI() *fyne.Container {
 		editor.addWaitControls(mainContainer)
 	case BlockTypeLoop:
 		editor.addLoopControls(mainContainer)
+	case BlockTypeTiltSensor:
+		editor.addTiltSensorControls(mainContainer)
+	case BlockTypeDistanceSensor:
+		editor.addDistanceSensorControls(mainContainer)
+	case BlockTypePiezoTone:
+		editor.addPiezoToneControls(mainContainer)
+	case BlockTypeVoltageSensor, BlockTypeCurrentSensor:
+		// Простые датчики
+		editor.addSimpleSensorControls(mainContainer, editor.block.Type)
 	}
 
 	return mainContainer
+}
+
+// addSimpleSensorControls для простых датчиков
+func (editor *BlockPropertyEditor) addSimpleSensorControls(mainContainer *fyne.Container, sensorType BlockType) {
+	portSelect := widget.NewSelect([]string{"Порт A (1)", "Порт B (2)", "Порт C (6)"}, func(selected string) {
+		switch selected {
+		case "Порт A (1)":
+			editor.block.Parameters["port"] = byte(1)
+		case "Порт B (2)":
+			editor.block.Parameters["port"] = byte(2)
+		case "Порт C (6)":
+			editor.block.Parameters["port"] = byte(6)
+		}
+	})
+	portSelect.SetSelected("Порт A (1)")
+	editor.block.Parameters["port"] = byte(1)
+
+	mainContainer.Add(widget.NewLabel("Порт:"))
+	mainContainer.Add(portSelect)
 }
 
 // addMotorControls добавляет элементы управления для мотора
@@ -299,4 +325,135 @@ func (editor *BlockPropertyEditor) addLoopControls(mainContainer *fyne.Container
 // GetContainer возвращает контейнер редактора
 func (editor *BlockPropertyEditor) GetContainer() *fyne.Container {
 	return editor.container
+}
+
+// addTiltSensorControls добавляет элементы управления для датчика наклона
+func (editor *BlockPropertyEditor) addTiltSensorControls(mainContainer *fyne.Container) {
+	// Выбор порта
+	portSelect := widget.NewSelect([]string{"Порт A (1)", "Порт B (2)", "Порт C (6)"}, func(selected string) {
+		switch selected {
+		case "Порт A (1)":
+			editor.block.Parameters["port"] = byte(1)
+		case "Порт B (2)":
+			editor.block.Parameters["port"] = byte(2)
+		case "Порт C (6)":
+			editor.block.Parameters["port"] = byte(6)
+		}
+	})
+	portSelect.SetSelected("Порт A (1)")
+	editor.block.Parameters["port"] = byte(1)
+
+	// Выбор режима
+	modeSelect := widget.NewSelect([]string{
+		"Угол наклона (0)",
+		"Определение наклона (1)",
+		"Определение удара (2)",
+	}, func(selected string) {
+		switch selected {
+		case "Угол наклона (0)":
+			editor.block.Parameters["mode"] = byte(0)
+		case "Определение наклона (1)":
+			editor.block.Parameters["mode"] = byte(1)
+		case "Определение удара (2)":
+			editor.block.Parameters["mode"] = byte(2)
+		}
+	})
+	modeSelect.SetSelected("Определение наклона (1)")
+	editor.block.Parameters["mode"] = byte(1)
+
+	mainContainer.Add(widget.NewLabel("Порт:"))
+	mainContainer.Add(portSelect)
+	mainContainer.Add(widget.NewLabel("Режим:"))
+	mainContainer.Add(modeSelect)
+}
+
+// addDistanceSensorControls добавляет элементы управления для датчика расстояния
+func (editor *BlockPropertyEditor) addDistanceSensorControls(mainContainer *fyne.Container) {
+	portSelect := widget.NewSelect([]string{"Порт A (1)", "Порт B (2)", "Порт C (6)"}, func(selected string) {
+		switch selected {
+		case "Порт A (1)":
+			editor.block.Parameters["port"] = byte(1)
+		case "Порт B (2)":
+			editor.block.Parameters["port"] = byte(2)
+		case "Порт C (6)":
+			editor.block.Parameters["port"] = byte(6)
+		}
+	})
+	portSelect.SetSelected("Порт A (1)")
+	editor.block.Parameters["port"] = byte(1)
+
+	// Выбор режима датчика расстояния
+	modeSelect := widget.NewSelect([]string{
+		"Измерение расстояния (0)",
+		"Подсчет объектов (1)",
+	}, func(selected string) {
+		switch selected {
+		case "Измерение расстояния (0)":
+			editor.block.Parameters["mode"] = byte(0)
+		case "Подсчет объектов (1)":
+			editor.block.Parameters["mode"] = byte(1)
+		}
+	})
+	modeSelect.SetSelected("Измерение расстояния (0)")
+	editor.block.Parameters["mode"] = byte(0)
+
+	mainContainer.Add(widget.NewLabel("Порт:"))
+	mainContainer.Add(portSelect)
+	mainContainer.Add(widget.NewLabel("Режим:"))
+	mainContainer.Add(modeSelect)
+}
+
+// addPiezoToneControls добавляет элементы управления для пищалки
+func (editor *BlockPropertyEditor) addPiezoToneControls(mainContainer *fyne.Container) {
+	portSelect := widget.NewSelect([]string{"Порт A (1)", "Порт B (2)", "Порт C (6)"}, func(selected string) {
+		switch selected {
+		case "Порт A (1)":
+			editor.block.Parameters["port"] = byte(1)
+		case "Порт B (2)":
+			editor.block.Parameters["port"] = byte(2)
+		case "Порт C (6)":
+			editor.block.Parameters["port"] = byte(6)
+		}
+	})
+	portSelect.SetSelected("Порт A (1)")
+	editor.block.Parameters["port"] = byte(1)
+
+	// Частота
+	freqEntry := widget.NewEntry()
+	freqEntry.SetText("440")
+	freqEntry.OnChanged = func(text string) {
+		if freq, err := strconv.ParseUint(text, 10, 16); err == nil {
+			editor.block.Parameters["frequency"] = uint16(freq)
+		}
+	}
+	editor.block.Parameters["frequency"] = uint16(440)
+
+	// Длительность
+	durationEntry := widget.NewEntry()
+	durationEntry.SetText("1000")
+	durationEntry.OnChanged = func(text string) {
+		if dur, err := strconv.ParseUint(text, 10, 16); err == nil {
+			editor.block.Parameters["duration"] = uint16(dur)
+		}
+	}
+	editor.block.Parameters["duration"] = uint16(1000)
+
+	// Кнопка теста
+	testButton := widget.NewButton("Тест звука", func() {
+		port := editor.block.Parameters["port"].(byte)
+		freq := editor.block.Parameters["frequency"].(uint16)
+		dur := editor.block.Parameters["duration"].(uint16)
+
+		if editor.deviceMgr != nil {
+			_ = editor.deviceMgr.PlayTone(port, freq, dur)
+		}
+	})
+
+	mainContainer.Add(widget.NewLabel("Порт:"))
+	mainContainer.Add(portSelect)
+	mainContainer.Add(widget.NewLabel("Частота (Гц):"))
+	mainContainer.Add(freqEntry)
+	mainContainer.Add(widget.NewLabel("Длительность (мс):"))
+	mainContainer.Add(durationEntry)
+	mainContainer.Add(testButton)
 }

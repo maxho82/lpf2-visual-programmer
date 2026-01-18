@@ -26,6 +26,7 @@ type HubManager struct {
 	sensorMonitor            *SensorMonitor
 	portNotificationCallback func(portID byte, deviceType byte, data []byte)
 	stateChangedCallback     func() // Добавим callback для изменений состояния
+	batteryUpdateCallback    func(batteryLevel int)
 }
 
 // HubInfo содержит информацию о подключенном хабе
@@ -127,7 +128,7 @@ func (hm *HubManager) ScanForHubs(timeout time.Duration) ([]HubInfo, error) {
 }
 
 // Connect подключается к хабу
-func (hm *HubManager) Connect(address string) error {
+/* func (hm *HubManager) Connect(address string) error {
 	hm.connectionMutex.Lock()
 	defer hm.connectionMutex.Unlock()
 
@@ -242,49 +243,62 @@ func (hm *HubManager) Connect(address string) error {
 			}
 		}
 	}
-	// 2. Получаем уровень батареи
+	// 2. Получаем уровень батареи с правильным чтением
 	log.Println("Получение уровня батареи...")
 
-	batteryServiceUUIDBytes := parseUUID(batteryServiceUUID)
-	batteryCharUUIDBytes := parseUUID(batteryCharUUID)
+	batteryServiceUUID := "0000180f-0000-1000-8000-00805f9b34fb"
+	batteryCharUUID := "00002a19-0000-1000-8000-00805f9b34fb"
 
-	serviceUUID := tinybluetooth.NewUUID(batteryServiceUUIDBytes)
-	services, err = hm.device.DiscoverServices([]tinybluetooth.UUID{serviceUUID})
-	if err == nil && len(services) > 0 {
-		charUUID := tinybluetooth.NewUUID(batteryCharUUIDBytes)
-		chars, err := services[0].DiscoverCharacteristics([]tinybluetooth.UUID{charUUID})
-		if err == nil && len(chars) > 0 {
-			char := chars[0]
+	// Находим службу батареи
+	services, err = hm.device.DiscoverServices(nil)
+	if err == nil {
+		for _, service := range services {
+			if service.UUID().String() == batteryServiceUUID {
+				chars, err := service.DiscoverCharacteristics(nil)
+				if err == nil {
+					for _, char := range chars {
+						if char.UUID().String() == batteryCharUUID {
+							// Читаем начальное значение
+							data := make([]byte, 1)
+							n, err := char.Read(data)
+							if err == nil && n > 0 {
+								batteryLevel := int(data[0])
+								log.Printf("Уровень батареи: %d%%", batteryLevel)
 
-			// Читаем начальное значение батареи
-			data := []byte{}
-			_, err := char.Read(data)
-			if err == nil && len(data) > 0 {
-				batteryLevel := int(data[0])
-				log.Printf("Уровень батареи: %d%%", batteryLevel)
-				hm.hubInfo.Battery = batteryLevel
+								hm.connectionMutex.Lock()
+								hm.hubInfo.Battery = batteryLevel
+								hm.connectionMutex.Unlock()
 
-				if hm.stateChangedCallback != nil {
-					hm.stateChangedCallback()
-				}
-			}
+								if hm.batteryUpdateCallback != nil {
+									hm.batteryUpdateCallback(batteryLevel)
+								}
+							}
 
-			// Подписываемся на обновления батареи
-			char.EnableNotifications(func(data []byte) {
-				if len(data) > 0 {
-					batteryLevel := int(data[0])
-					log.Printf("Обновление уровня батареи: %d%%", batteryLevel)
+							// Подписываемся на обновления
+							char.EnableNotifications(func(data []byte) {
+								if len(data) > 0 {
+									batteryLevel := int(data[0])
+									log.Printf("Обновление уровня батареи: %d%%", batteryLevel)
 
-					hm.connectionMutex.Lock()
-					hm.hubInfo.Battery = batteryLevel
-					hm.connectionMutex.Unlock()
+									hm.connectionMutex.Lock()
+									hm.hubInfo.Battery = batteryLevel
+									hm.connectionMutex.Unlock()
 
-					if hm.stateChangedCallback != nil {
-						hm.stateChangedCallback()
+									if hm.batteryUpdateCallback != nil {
+										hm.batteryUpdateCallback(batteryLevel)
+									}
+
+									if hm.stateChangedCallback != nil {
+										hm.stateChangedCallback()
+									}
+								}
+							})
+							log.Println("Подписка на обновления батареи установлена")
+							break
+						}
 					}
 				}
-			})
-			log.Println("Подписка на обновления батареи установлена")
+			}
 		}
 	}
 
@@ -365,6 +379,157 @@ func (hm *HubManager) Connect(address string) error {
 	}()
 
 	return nil
+} */
+//----------------------------------------------------------
+func (hm *HubManager) Connect(address string) error {
+	hm.connectionMutex.Lock()
+	defer hm.connectionMutex.Unlock()
+
+	if hm.isConnected {
+		hm.Disconnect()
+	}
+
+	log.Printf("Попытка подключения к %s", address)
+
+	// Запускаем сканирование в отдельной горутине
+	//var targetDevice tinybluetooth.ScanResult
+	//var found bool
+
+	// Создаем канал для результата сканирования
+	scanResult := make(chan struct {
+		device tinybluetooth.ScanResult
+		found  bool
+		err    error
+	}, 1)
+
+	// Запускаем сканирование в отдельной горутине
+	go func() {
+		var targetDevice tinybluetooth.ScanResult
+		found := false
+
+		// Используем контекст с таймаутом для сканирования
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := hm.adapter.Scan(func(adapter *tinybluetooth.Adapter, result tinybluetooth.ScanResult) {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			if result.Address.String() == address {
+				log.Printf("Найдено устройство для подключения: %s", result.LocalName())
+				adapter.StopScan()
+				targetDevice = result
+				found = true
+				cancel()
+			}
+		})
+
+		scanResult <- struct {
+			device tinybluetooth.ScanResult
+			found  bool
+			err    error
+		}{targetDevice, found, err}
+	}()
+
+	// Ждем результат сканирования
+	result := <-scanResult
+
+	if result.err != nil {
+		return fmt.Errorf("ошибка сканирования: %v", result.err)
+	}
+
+	if !result.found {
+		return fmt.Errorf("устройство с адресом %s не найдено", address)
+	}
+
+	// Подключаемся
+	log.Printf("Устанавливаем соединение с %s...", address)
+	device, err := hm.adapter.Connect(result.device.Address, tinybluetooth.ConnectionParams{})
+	if err != nil {
+		return fmt.Errorf("ошибка подключения: %v", err)
+	}
+
+	hm.device = device
+	hm.deviceAddress = address
+	hm.isConnected = true
+
+	// Обнаружение служб и характеристик
+	log.Println("Обнаружение служб и характеристик...")
+	services, err := device.DiscoverServices(nil)
+	if err != nil {
+		log.Printf("Ошибка обнаружения служб: %v", err)
+	} else {
+		for _, service := range services {
+			uuid := service.UUID().String()
+			log.Printf("Найдена служба: %s", uuid)
+			hm.services[uuid] = service
+
+			// Обнаруживаем характеристики
+			chars, err := service.DiscoverCharacteristics(nil)
+			if err != nil {
+				log.Printf("Ошибка обнаружения характеристик: %v", err)
+				continue
+			}
+
+			for _, char := range chars {
+				charUUID := char.UUID().String()
+				log.Printf("  Характеристика: %s", charUUID)
+				hm.characteristics[charUUID] = char
+			}
+		}
+	}
+
+	// Обновляем информацию о хабе
+
+	if hm.hubInfo == nil {
+		hm.hubInfo = &HubInfo{
+			Ports: make([]PortInfo, 6),
+		}
+	}
+
+	hm.hubInfo.Name = result.device.LocalName()
+	hm.hubInfo.Address = address
+	hm.hubInfo.LastUpdated = time.Now()
+
+	return nil
+}
+
+func (hm *HubManager) discoverServicesAndCharacteristics(device tinybluetooth.Device) {
+	log.Println("Обнаружение служб и характеристик...")
+	services, err := device.DiscoverServices(nil)
+	if err != nil {
+		log.Printf("Ошибка обнаружения служб: %v", err)
+		return
+	}
+
+	for _, service := range services {
+		uuid := service.UUID().String()
+		log.Printf("Найдена служба: %s", uuid)
+		hm.services[uuid] = service
+
+		chars, err := service.DiscoverCharacteristics(nil)
+		if err != nil {
+			log.Printf("Ошибка обнаружения характеристик: %v", err)
+			continue
+		}
+
+		for _, char := range chars {
+			charUUID := char.UUID().String()
+			log.Printf("  Характеристика: %s", charUUID)
+			hm.characteristics[charUUID] = char
+		}
+	}
+
+	log.Println("Обнаружение служб и характеристик завершено")
+}
+
+//-------------------------------------------------------------------
+
+func (hm *HubManager) SetBatteryUpdateCallback(callback func(batteryLevel int)) {
+	hm.batteryUpdateCallback = callback
 }
 func parseUUID(uuidStr string) [16]byte {
 	// Упрощенный парсинг UUID - в реальном коде нужно обрабатывать дефисы

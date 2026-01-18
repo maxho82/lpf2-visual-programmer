@@ -306,3 +306,66 @@ func (dm *DeviceManager) GetDevice(portID byte) (*Device, bool) {
 
 	return device, true
 }
+
+// PlayTone воспроизводит звук на пищалке
+func (dm *DeviceManager) PlayTone(portID byte, frequency uint16, duration uint16) error {
+	if !dm.hubMgr.IsConnected() {
+		return fmt.Errorf("не подключено к хабу")
+	}
+
+	// Формируем команду как в тестовой утилите
+	freqLow := byte(frequency & 0xFF)
+	freqHigh := byte((frequency >> 8) & 0xFF)
+	durLow := byte(duration & 0xFF)
+	durHigh := byte((duration >> 8) & 0xFF)
+
+	cmd := []byte{
+		portID,   // connectId
+		0x02,     // commandId (WritePlayPiezoToneCommandId)
+		0x04,     // dataLength
+		freqLow,  // frequency low byte
+		freqHigh, // frequency high byte
+		durLow,   // duration low byte
+		durHigh,  // duration high byte
+	}
+
+	log.Printf("Проигрывание тона (порт %d): частота=%d Гц, длительность=%d мс",
+		portID, frequency, duration)
+
+	return dm.hubMgr.WriteCharacteristic(OUTPUT_COMMAND_UUID, cmd)
+}
+
+// StopTone останавливает звук
+func (dm *DeviceManager) StopTone(portID byte) error {
+	if !dm.hubMgr.IsConnected() {
+		return fmt.Errorf("не подключено к хабу")
+	}
+
+	cmd := []byte{
+		portID, // connectId
+		0x03,   // commandId (WriteStopPiezoToneCommandId)
+		0x00,   // dataLength
+	}
+
+	log.Printf("Остановка пищалки (порт %d)", portID)
+	return dm.hubMgr.WriteCharacteristic(OUTPUT_COMMAND_UUID, cmd)
+}
+
+// SetupSensorMode настраивает режим датчика
+func (dm *DeviceManager) SetupSensorMode(portID byte, deviceType byte, mode byte) error {
+	if !dm.hubMgr.IsConnected() {
+		return fmt.Errorf("не подключено к хабу")
+	}
+
+	// Формат команды: [0x01, 0x02, port, deviceType, mode, 0x01, 0x00, 0x00, 0x00, 0x02, 0x01]
+	cmd := []byte{
+		0x01, 0x02,
+		portID,
+		deviceType,
+		mode,
+		0x01, 0x00, 0x00, 0x00, 0x02, 0x01,
+	}
+
+	log.Printf("Настройка датчика (порт %d, тип: 0x%02x, режим: %d)", portID, deviceType, mode)
+	return dm.hubMgr.WriteCharacteristic(INPUT_COMMAND_UUID, cmd)
+}

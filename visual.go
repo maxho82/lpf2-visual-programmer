@@ -60,6 +60,11 @@ const (
 	BlockTypeSensor
 	BlockTypeSound
 	BlockTypeStop
+	BlockTypeTiltSensor     // новый
+	BlockTypeDistanceSensor // новый
+	BlockTypePiezoTone      // новый
+	BlockTypeVoltageSensor  // новый
+	BlockTypeCurrentSensor  // новый
 )
 
 // NewProgramManager создает менеджер программ
@@ -205,6 +210,68 @@ func (pm *ProgramManager) AddBlock(blockType BlockType, x, y float64) *ProgramBl
 		block.Color = color.NRGBA{R: 244, G: 67, B: 54, A: 255}
 		block.OnExecute = func() error {
 			pm.StopProgram()
+			return nil
+		}
+	case BlockTypeTiltSensor:
+		block.Title = "Датчик наклона"
+		block.Description = "Чтение датчика наклона"
+		block.Color = color.NRGBA{R: 106, G: 90, B: 205, A: 255} // фиолетовый
+		block.Parameters["port"] = byte(1)
+		block.Parameters["mode"] = byte(1) // режим наклона
+		block.OnExecute = func() error {
+			port := block.Parameters["port"].(byte)
+			mode := block.Parameters["mode"].(byte)
+			// Здесь будет логика чтения датчика наклона
+			log.Printf("Чтение датчика наклона (порт %d, режим: %d)", port, mode)
+			return nil
+		}
+
+	case BlockTypeDistanceSensor:
+		block.Title = "Датчик расстояния"
+		block.Description = "Измерение расстояния"
+		block.Color = color.NRGBA{R: 30, G: 144, B: 255, A: 255} // голубой
+		block.Parameters["port"] = byte(1)
+		block.Parameters["mode"] = byte(0) // режим измерения расстояния
+		block.OnExecute = func() error {
+			port := block.Parameters["port"].(byte)
+			// Здесь будет логика чтения датчика расстояния
+			log.Printf("Чтение датчика расстояния (порт %d)", port)
+			return nil
+		}
+
+	case BlockTypePiezoTone:
+		block.Title = "Звук"
+		block.Description = "Воспроизведение звука"
+		block.Color = color.NRGBA{R: 255, G: 140, B: 0, A: 255} // оранжевый
+		block.Parameters["port"] = byte(1)
+		block.Parameters["frequency"] = uint16(440)
+		block.Parameters["duration"] = uint16(1000)
+		block.OnExecute = func() error {
+			port := block.Parameters["port"].(byte)
+			frequency := block.Parameters["frequency"].(uint16)
+			duration := block.Parameters["duration"].(uint16)
+			return pm.deviceMgr.PlayTone(port, frequency, duration)
+		}
+
+	case BlockTypeVoltageSensor:
+		block.Title = "Датчик напряжения"
+		block.Description = "Измерение напряжения"
+		block.Color = color.NRGBA{R: 50, G: 205, B: 50, A: 255} // зеленый
+		block.Parameters["port"] = byte(1)
+		block.OnExecute = func() error {
+			port := block.Parameters["port"].(byte)
+			log.Printf("Чтение датчика напряжения (порт %d)", port)
+			return nil
+		}
+
+	case BlockTypeCurrentSensor:
+		block.Title = "Датчик тока"
+		block.Description = "Измерение тока"
+		block.Color = color.NRGBA{R: 205, G: 92, B: 92, A: 255} // красный
+		block.Parameters["port"] = byte(1)
+		block.OnExecute = func() error {
+			port := block.Parameters["port"].(byte)
+			log.Printf("Чтение датчика тока (порт %d)", port)
 			return nil
 		}
 	}

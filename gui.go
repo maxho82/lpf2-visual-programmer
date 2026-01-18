@@ -394,6 +394,70 @@ func (gui *GUI) createDeviceCard(device Device) fyne.CanvasObject {
 	)
 }
 
+/* func (gui *GUI) createBatteryWidget() fyne.CanvasObject {
+	// Заголовок
+	title := canvas.NewText("Батарея", color.NRGBA{R: 240, G: 240, B: 240, A: 255})
+	title.TextSize = 14
+	title.TextStyle.Bold = true
+
+	// Прогресс-бар
+	progress := widget.NewProgressBar()
+	progress.Min = 0
+	progress.Max = 100
+
+	// Метка процентов
+	percentLabel := widget.NewLabel("--%")
+	percentLabel.Alignment = fyne.TextAlignCenter
+
+	// Иконка батареи
+	batteryIcon := widget.NewIcon(theme.ViewRefreshIcon())
+
+	// Контейнер
+	batteryContainer := container.NewVBox(
+		container.NewCenter(title),
+		container.NewHBox(
+			batteryIcon,
+			progress,
+		),
+		percentLabel,
+		widget.NewSeparator(),
+	)
+
+	// Устанавливаем callback для обновлений батареи
+	if gui.hubMgr != nil {
+		gui.hubMgr.SetBatteryUpdateCallback(func(batteryLevel int) {
+			fyne.Do(func() {
+				progress.SetValue(float64(batteryLevel) / 100)
+				percentLabel.SetText(fmt.Sprintf("%d%%", batteryLevel))
+
+				// Обновляем иконку в зависимости от уровня
+				if batteryLevel > 60 {
+					batteryIcon.SetResource(theme.ConfirmIcon())
+				} else if batteryLevel > 20 {
+					batteryIcon.SetResource(theme.WarningIcon())
+				} else {
+					batteryIcon.SetResource(theme.ErrorIcon())
+				}
+
+				progress.Refresh()
+				percentLabel.Refresh()
+				batteryIcon.Refresh()
+			})
+		})
+	}
+
+	// Обновление при подключении
+	if gui.hubMgr != nil && gui.hubMgr.IsConnected() {
+		hubInfo := gui.hubMgr.GetHubInfo()
+		if hubInfo.Battery > 0 {
+			progress.SetValue(float64(hubInfo.Battery) / 100)
+			percentLabel.SetText(fmt.Sprintf("%d%%", hubInfo.Battery))
+		}
+	}
+
+	return batteryContainer
+}
+*/
 /* // createPortWidget создает виджет порта с динамическими данными
 func (gui *GUI) createPortWidget(portID byte, label string) fyne.CanvasObject {
 	// Иконка порта
@@ -668,21 +732,27 @@ func (gui *GUI) createPropertiesPanel() fyne.CanvasObject {
 
 // createBlocksPanel создает панель блоков
 func (gui *GUI) createBlocksPanel() fyne.CanvasObject {
-	// Заголовок
 	title := canvas.NewText("Блоки", color.NRGBA{R: 240, G: 240, B: 240, A: 255})
 	title.TextSize = 16
 	title.TextStyle.Bold = true
 
-	// Список доступных блоков
 	blocksList := container.NewVBox(
 		container.NewCenter(title),
 		widget.NewSeparator(),
+		widget.NewLabel("Управление:"),
 		gui.createBlockButton("Начать", BlockTypeStart),
 		gui.createBlockButton("Мотор", BlockTypeMotor),
 		gui.createBlockButton("Светодиод", BlockTypeLED),
 		gui.createBlockButton("Ждать", BlockTypeWait),
 		gui.createBlockButton("Повторять", BlockTypeLoop),
 		gui.createBlockButton("Стоп", BlockTypeStop),
+		widget.NewSeparator(),
+		widget.NewLabel("Датчики:"),
+		gui.createBlockButton("Наклон", BlockTypeTiltSensor),
+		gui.createBlockButton("Расстояние", BlockTypeDistanceSensor),
+		gui.createBlockButton("Напряжение", BlockTypeVoltageSensor),
+		gui.createBlockButton("Ток", BlockTypeCurrentSensor),
+		gui.createBlockButton("Звук", BlockTypePiezoTone),
 	)
 
 	return container.NewVScroll(container.NewPadded(blocksList))
@@ -810,41 +880,32 @@ func (gui *GUI) showHubDiscoveryDialog() {
 
 // connectToHub подключается к указанному хабу
 func (gui *GUI) connectToHub(address string) {
-	progress := dialog.NewProgress("Подключение", "Подключение к хабу...", gui.window)
-	// Закрываем предыдущие диалоги
+	log.Println("Начало подключения к хабу:", address)
 
+	progress := dialog.NewProgressInfinite("Подключение", "Подключение к хабу...", gui.window)
 	progress.Show()
 
 	go func() {
+		log.Println("Запуск подключения в горутине")
 		err := gui.hubMgr.Connect(address)
 
 		fyne.Do(func() {
+			log.Println("Скрытие диалога прогресса")
 			progress.Hide()
+			log.Println("Диалог скрыт")
 
 			if err != nil {
+				log.Printf("Ошибка подключения: %v", err)
 				dialog.ShowError(err, gui.window)
 			} else {
+				log.Println("Подключение успешно, обновление статуса")
 				gui.updateConnectionStatus()
 
-				// Запускаем начальный опрос устройств
-				if gui.hubMgr.GetSensorMonitor() != nil {
-					go func() {
-						time.Sleep(500 * time.Millisecond) // Даем время на установку соединения
-						sensorMonitor := gui.hubMgr.GetSensorMonitor()
-						if sensorMonitor != nil {
-							// Вызываем начальный опрос
-							sensorMonitor.UpdateDevices()
-
-							// Запрашиваем обновление GUI
-							select {
-							case gui.deviceUpdateRequest <- true:
-							default:
-							}
-						}
-					}()
-				}
-
-				dialog.ShowInformation("Успешно", "Подключение установлено!", gui.window)
+				// Показываем краткое сообщение об успехе
+				infoDialog := dialog.NewInformation("Успешно", "Подключение установлено!", gui.window)
+				infoDialog.SetDismissText("OK")
+				infoDialog.Show()
+				log.Println("Диалог успеха показан")
 			}
 		})
 	}()
@@ -1018,4 +1079,55 @@ func hexStringToBytes(hexStr string) ([]byte, error) {
 		data[i/2] = byte(b)
 	}
 	return data, nil
+}
+
+func (gui *GUI) createEnhancedDevicePanel() fyne.CanvasObject {
+	title := canvas.NewText("Подключенные устройства", color.NRGBA{R: 240, G: 240, B: 240, A: 255})
+	title.TextSize = 16
+	title.TextStyle.Bold = true
+
+	mainContainer := container.NewVBox(
+		container.NewCenter(title),
+		widget.NewSeparator(),
+	)
+
+	// Контейнер для динамических устройств
+	gui.dynamicDevicesContainer = container.NewVBox()
+
+	// Кнопка для сканирования устройств
+	scanButton := widget.NewButtonWithIcon("Сканировать устройства", theme.SearchIcon(), func() {
+		gui.scanConnectedDevices()
+	})
+
+	mainContainer.Add(scanButton)
+	mainContainer.Add(gui.dynamicDevicesContainer)
+
+	return container.NewVScroll(container.NewPadded(mainContainer))
+}
+
+func (gui *GUI) scanConnectedDevices() {
+	if !gui.hubMgr.IsConnected() {
+		return
+	}
+
+	// Используем логику из тестовой утилиты для сканирования устройств
+	go func() {
+		// Отправляем запросы на активацию портов
+		ports := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06}
+
+		for _, port := range ports {
+			// Команда активации порта
+			cmd := []byte{0x00, 0x41, port, 0x08, 1, 0, 0, 0, 1}
+			_ = gui.hubMgr.WriteCharacteristic(INPUT_COMMAND_UUID, cmd)
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		// Ждем обнаружения устройств
+		time.Sleep(2 * time.Second)
+
+		// Обновляем GUI
+		fyne.Do(func() {
+			gui.updateDeviceDisplay()
+		})
+	}()
 }
